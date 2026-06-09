@@ -94,6 +94,8 @@ export async function clearStore(storeName: StoreName): Promise<void> {
 }
 
 export async function seedIfEmpty(): Promise<void> {
+  await clearInitialMarketDataOnce();
+
   const existing = await getAll("movements");
   if (existing.length > 0) return;
 
@@ -180,21 +182,8 @@ export async function seedIfEmpty(): Promise<void> {
     { id: createId("fix"), concept: "Streaming", amount: 14, payDay: 22, dueDate: d(new Date().getMonth(), 22), status: "Pagado", createdAt: now, updatedAt: now },
   ];
 
-  const products: MarketProduct[] = [
-    { id: createId("prd"), product: "Leche", category: "Despensa", lastPrice: 2.4, lastPurchaseDate: d(new Date().getMonth(), 1), currentQty: 1, minQty: 2, createdAt: now, updatedAt: now },
-    { id: createId("prd"), product: "Huevos", category: "Despensa", lastPrice: 3.6, lastPurchaseDate: d(new Date().getMonth(), 3), currentQty: 0, minQty: 1, createdAt: now, updatedAt: now },
-    { id: createId("prd"), product: "Arroz", category: "Despensa", lastPrice: 4.1, lastPurchaseDate: d(new Date().getMonth(), 2), currentQty: 2, minQty: 1, createdAt: now, updatedAt: now },
-    { id: createId("prd"), product: "Papel higiénico", category: "Higiene", lastPrice: 6.8, lastPurchaseDate: d(new Date().getMonth(), 4), currentQty: 1, minQty: 2, createdAt: now, updatedAt: now },
-  ];
-
-  const purchases: MarketPurchase[] = products.map((product) => ({
-    id: createId("buy"),
-    productId: product.id,
-    product: product.product,
-    price: product.lastPrice,
-    date: product.lastPurchaseDate,
-    createdAt: now,
-  }));
+  const products: MarketProduct[] = [];
+  const purchases: MarketPurchase[] = [];
 
   await Promise.all([
     ...movements.map((item) => putItem("movements", item)),
@@ -202,6 +191,14 @@ export async function seedIfEmpty(): Promise<void> {
     ...products.map((item) => putItem("products", item)),
     ...purchases.map((item) => putItem("purchases", item)),
   ]);
+}
+
+async function clearInitialMarketDataOnce(): Promise<void> {
+  const flag = "finanzas-hogar-market-clean-v1";
+  if (localStorage.getItem(flag)) return;
+
+  await Promise.all([clearStore("products"), clearStore("purchases")]);
+  localStorage.setItem(flag, "1");
 }
 
 export async function exportBackup(): Promise<BackupPayload> {
