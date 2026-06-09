@@ -48,9 +48,24 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
   }
 
   async function markBought(product: MarketProduct) {
-    const value = prompt("Precio pagado", String(product.lastPrice));
+    const priceValue = prompt("Precio pagado", String(product.lastPrice));
+    if (priceValue === null) return;
+    const qtyValue = prompt("Cantidad comprada", "1");
+    if (qtyValue === null) return;
+
+    await finance.markProductBought(
+      product.id,
+      Number(priceValue.replace(",", ".")),
+      Number(qtyValue.replace(",", ".")),
+    );
+  }
+
+  async function consume(product: MarketProduct) {
+    const value = prompt(`¿Cuántas unidades consumiste de ${product.product}?`, "1");
     if (value === null) return;
-    await finance.markProductBought(product.id, Number(value.replace(",", ".")));
+    const amount = Math.max(0, Math.floor(Number(value.replace(",", "."))));
+    if (amount <= 0) return;
+    await finance.adjustProductQuantity(product.id, -amount);
   }
 
   return (
@@ -127,7 +142,10 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
                   </div>
                   <p className="font-black text-slate-950">{currency(product.lastPrice)}</p>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <button className="btn-secondary" type="button" onClick={() => void consume(product)}>
+                    Consumir
+                  </button>
                   <button className="btn-primary" type="button" onClick={() => void markBought(product)}>
                     Comprado
                   </button>
@@ -149,12 +167,15 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
       <Card>
         <h2 className="text-lg font-black text-slate-950">Historial de compras</h2>
         <div className="mt-3 space-y-2">
-          {finance.monthPurchases.length > 0 ? (
-            finance.monthPurchases.slice(0, 8).map((purchase) => (
+          {finance.monthPurchaseSummary.length > 0 ? (
+            finance.monthPurchaseSummary.slice(0, 8).map((purchase) => (
               <div key={purchase.id} className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
                 <div>
                   <p className="font-bold text-slate-900">{purchase.product}</p>
-                  <p className="text-sm text-slate-500">{formatLongDate(purchase.date)}</p>
+                  <p className="text-sm text-slate-500">
+                    {formatLongDate(purchase.date)}
+                    {purchase.count > 1 ? ` · ${purchase.count} compras` : ""}
+                  </p>
                 </div>
                 <p className="font-black text-slate-950">{currency(purchase.price)}</p>
               </div>

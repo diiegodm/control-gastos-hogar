@@ -44,6 +44,15 @@ type MovementInput = Omit<Movement, "id" | "createdAt" | "updatedAt">;
 type FixedInput = Omit<FixedExpense, "id" | "createdAt" | "updatedAt">;
 type ProductInput = Omit<MarketProduct, "id" | "createdAt" | "updatedAt">;
 
+function normalizeProductName(name: string): string {
+  return name
+    .trim()
+    .toLocaleLowerCase("es-ES")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
 export function useFinance(selectedMonth: number) {
   const [state, setState] = useState<FinanceState>(emptyState);
   const [loading, setLoading] = useState(true);
@@ -88,6 +97,28 @@ export function useFinance(selectedMonth: number) {
     () => state.purchases.filter((item) => isSameMonth(item.date, selectedMonth)),
     [state.purchases, selectedMonth],
   );
+
+  const monthPurchaseSummary = useMemo(() => {
+    const grouped = new Map<string, MarketPurchase & { count: number }>();
+
+    for (const purchase of monthPurchases) {
+      const key = normalizeProductName(purchase.product);
+      const current = grouped.get(key);
+      if (!current) {
+        grouped.set(key, { ...purchase, count: 1 });
+        continue;
+      }
+
+      grouped.set(key, {
+        ...current,
+        price: current.price + purchase.price,
+        count: current.count + 1,
+        date: purchase.date > current.date ? purchase.date : current.date,
+      });
+    }
+
+    return [...grouped.values()].sort((a, b) => b.date.localeCompare(a.date));
+  }, [monthPurchases]);
 
   const fixedForMonth = useMemo(
     () =>
@@ -235,6 +266,22 @@ export function useFinance(selectedMonth: number) {
   const createProduct = useCallback(
     async (input: ProductInput) => {
       const now = new Date().toISOString();
+      const existing = state.products.find(
+        (product) => normalizeProductName(product.product) === normalizeProductName(input.product),
+      );
+
+      if (existing) {
+        await putItem("products", {
+          ...existing,
+          ...input,
+          currentQty: input.currentQty,
+          minQty: input.minQty,
+          updatedAt: now,
+        });
+        await refresh();
+        return;
+      }
+
       await putItem("products", {
         ...input,
         id: createId("prd"),
@@ -243,7 +290,7 @@ export function useFinance(selectedMonth: number) {
       });
       await refresh();
     },
-    [refresh],
+    [refresh, state.products],
   );
 
   const updateProduct = useCallback(
@@ -269,16 +316,17 @@ export function useFinance(selectedMonth: number) {
   );
 
   const markProductBought = useCallback(
-    async (id: string, price?: number) => {
+    async (id: string, price?: number, quantity = 1) => {
       const product = state.products.find((item) => item.id === id);
       if (!product) return;
       const now = new Date().toISOString();
       const purchasePrice = typeof price === "number" && price > 0 ? price : product.lastPrice;
+      const purchasedQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
       const updatedProduct: MarketProduct = {
         ...product,
         lastPrice: purchasePrice,
         lastPurchaseDate: todayISO(),
-        currentQty: Math.max(product.currentQty + 1, product.minQty + 1),
+        currentQty: product.currentQty + purchasedQty,
         updatedAt: now,
       };
       const purchase: MarketPurchase = {
@@ -290,6 +338,20 @@ export function useFinance(selectedMonth: number) {
         createdAt: now,
       };
       await Promise.all([putItem("products", updatedProduct), putItem("purchases", purchase)]);
+      await refresh();
+    },
+    [refresh, state.products],
+  );
+
+  const adjustProductQuantity = useCallback(
+    async (id: string, delta: number) => {
+      const product = state.products.find((item) => item.id === id);
+      if (!product) return;
+      await putItem("products", {
+        ...product,
+        currentQty: Math.max(0, product.currentQty + delta),
+        updatedAt: new Date().toISOString(),
+      });
       await refresh();
     },
     [refresh, state.products],
@@ -319,6 +381,7 @@ export function useFinance(selectedMonth: number) {
     loading,
     monthMovements,
     monthPurchases,
+    monthPurchaseSummary,
     fixedForMonth,
     dashboard,
     createMovement,
@@ -331,6 +394,7 @@ export function useFinance(selectedMonth: number) {
     updateProduct,
     removeProduct,
     markProductBought,
+    adjustProductQuantity,
     backup,
     restore,
   };

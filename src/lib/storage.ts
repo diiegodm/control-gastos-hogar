@@ -95,6 +95,7 @@ export async function clearStore(storeName: StoreName): Promise<void> {
 
 export async function seedIfEmpty(): Promise<void> {
   await clearInitialMarketDataOnce();
+  await mergeDuplicateMarketProducts();
 
   const existing = await getAll("movements");
   if (existing.length > 0) return;
@@ -197,8 +198,66 @@ async function clearInitialMarketDataOnce(): Promise<void> {
   const flag = "finanzas-hogar-market-clean-v1";
   if (localStorage.getItem(flag)) return;
 
-  await Promise.all([clearStore("products"), clearStore("purchases")]);
   localStorage.setItem(flag, "1");
+}
+
+function normalizeProductName(name: string): string {
+  return name
+    .trim()
+    .toLocaleLowerCase("es-ES")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+async function mergeDuplicateMarketProducts(): Promise<void> {
+  const products = await getAll("products");
+  if (products.length < 2) return;
+
+  const purchases = await getAll("purchases");
+  const groups = new Map<string, MarketProduct[]>();
+
+  for (const product of products) {
+    const key = normalizeProductName(product.product);
+    groups.set(key, [...(groups.get(key) ?? []), product]);
+  }
+
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+
+    const sorted = [...group].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const primary = sorted[0];
+    const duplicates = sorted.slice(1);
+    const duplicateIds = new Set(duplicates.map((product) => product.id));
+    const latest = [...group].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+
+    const merged: MarketProduct = {
+      ...primary,
+      product: latest.product,
+      category: latest.category,
+      lastPrice: latest.lastPrice,
+      lastPurchaseDate: latest.lastPurchaseDate,
+      currentQty: group.reduce((sum, product) => sum + product.currentQty, 0),
+      minQty: Math.max(...group.map((product) => product.minQty)),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await putItem("products", merged);
+
+    await Promise.all(
+      purchases
+        .filter((purchase) => duplicateIds.has(purchase.productId))
+        .map((purchase) =>
+          putItem("purchases", {
+            ...purchase,
+            productId: primary.id,
+            product: merged.product,
+          }),
+        ),
+    );
+
+    await Promise.all(duplicates.map((product) => deleteItem("products", product.id)));
+  }
 }
 
 export async function exportBackup(): Promise<BackupPayload> {
