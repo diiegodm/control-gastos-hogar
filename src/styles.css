@@ -47,6 +47,7 @@ button {
       radial-gradient(circle at 85% 10%, rgba(204, 251, 241, 0.5), transparent 24rem),
       #f6f7fb;
   }
+
 }
 
 @layer components {

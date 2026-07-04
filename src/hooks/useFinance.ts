@@ -9,7 +9,6 @@ import {
   seedIfEmpty,
 } from "../lib/storage";
 import {
-  currentYear,
   daysUntil,
   dueDateForMonth,
   isSameMonth,
@@ -99,13 +98,14 @@ export function useFinance(selectedMonth: number) {
   );
 
   const monthPurchaseSummary = useMemo(() => {
-    const grouped = new Map<string, MarketPurchase & { count: number }>();
+    const grouped = new Map<string, MarketPurchase & { count: number; totalQuantity: number }>();
 
     for (const purchase of monthPurchases) {
       const key = normalizeProductName(purchase.product);
+      const quantity = purchase.quantity ?? 1;
       const current = grouped.get(key);
       if (!current) {
-        grouped.set(key, { ...purchase, count: 1 });
+        grouped.set(key, { ...purchase, count: 1, totalQuantity: quantity });
         continue;
       }
 
@@ -113,6 +113,7 @@ export function useFinance(selectedMonth: number) {
         ...current,
         price: current.price + purchase.price,
         count: current.count + 1,
+        totalQuantity: current.totalQuantity + quantity,
         date: purchase.date > current.date ? purchase.date : current.date,
       });
     }
@@ -334,6 +335,7 @@ export function useFinance(selectedMonth: number) {
         productId: product.id,
         product: product.product,
         price: purchasePrice,
+        quantity: purchasedQty,
         date: todayISO(),
         createdAt: now,
       };

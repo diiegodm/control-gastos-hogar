@@ -65,6 +65,7 @@ export type MarketPurchase = {
   productId: string;
   product: string;
   price: number;
+  quantity?: number;
   date: string;
   createdAt: string;
 };
