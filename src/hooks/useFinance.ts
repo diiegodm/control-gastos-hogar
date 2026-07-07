@@ -317,15 +317,16 @@ export function useFinance(selectedMonth: number) {
   );
 
   const markProductBought = useCallback(
-    async (id: string, price?: number, quantity = 1) => {
+    async (id: string, price?: number, quantity = 1, priceMode: "total" | "unit" = "total") => {
       const product = state.products.find((item) => item.id === id);
       if (!product) return;
       const now = new Date().toISOString();
-      const purchasePrice = typeof price === "number" && price > 0 ? price : product.lastPrice;
       const purchasedQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+      const enteredPrice = typeof price === "number" && price > 0 ? price : product.lastPrice;
+      const purchaseTotal = priceMode === "unit" ? enteredPrice * purchasedQty : enteredPrice;
       const updatedProduct: MarketProduct = {
         ...product,
-        lastPrice: purchasePrice,
+        lastPrice: enteredPrice,
         lastPurchaseDate: todayISO(),
         currentQty: product.currentQty + purchasedQty,
         updatedAt: now,
@@ -334,8 +335,10 @@ export function useFinance(selectedMonth: number) {
         id: createId("buy"),
         productId: product.id,
         product: product.product,
-        price: purchasePrice,
+        price: purchaseTotal,
         quantity: purchasedQty,
+        unitPrice: priceMode === "unit" ? enteredPrice : undefined,
+        priceMode,
         date: todayISO(),
         createdAt: now,
       };

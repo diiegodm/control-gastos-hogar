@@ -126,7 +126,8 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
   async function submitPurchase(product: MarketProduct, formData: FormData) {
     const quantity = Math.max(1, numberValue(formData.get("quantity")));
     const price = numberValue(formData.get("price"));
-    await finance.markProductBought(product.id, price, quantity);
+    const priceMode = String(formData.get("priceMode") || "total") as "total" | "unit";
+    await finance.markProductBought(product.id, price, quantity, priceMode);
     setCheckedRestockIds((current) => {
       const next = new Set(current);
       next.delete(product.id);
@@ -272,10 +273,17 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
             }}
           >
             <p className="text-sm font-black text-blue-900">Registrar compra</p>
+            <select className="input h-11" name="priceMode" defaultValue="total">
+              <option value="total">Precio total / paquete</option>
+              <option value="unit">Precio por unidad</option>
+            </select>
             <div className="grid grid-cols-2 gap-2">
               <input className="input h-11" name="quantity" type="number" min="1" step="1" defaultValue={suggested} placeholder="Cantidad" />
-              <input className="input h-11" name="price" type="number" min="0" step="0.01" defaultValue={product.lastPrice} placeholder="Precio pagado" />
+              <input className="input h-11" name="price" type="number" min="0" step="0.01" defaultValue={product.lastPrice} placeholder="Precio" />
             </div>
+            <p className="text-xs font-semibold text-blue-700">
+              Paquete: cantidad 10 y precio 2,50 = total 2,50. Unidad: cantidad 3 y precio 2,00 = total 6,00.
+            </p>
             <div className="grid grid-cols-2 gap-2">
               <button className="btn-primary" type="submit">Confirmar</button>
               <button className="btn-secondary" type="button" onClick={() => setBuyingId(null)}>Cancelar</button>
@@ -465,6 +473,9 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
                     <p className="text-sm text-slate-500">
                       {formatLongDate(purchase.date)} · {purchase.totalQuantity} uds
                       {purchase.count > 1 ? ` · ${purchase.count} compras` : ""}
+                      {purchase.priceMode === "unit" && purchase.unitPrice
+                        ? ` · ${currency(purchase.unitPrice)} c/u`
+                        : ""}
                     </p>
                   </div>
                   <p className="font-black text-slate-950">{currency(purchase.price)}</p>

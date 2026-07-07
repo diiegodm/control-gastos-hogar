@@ -66,6 +66,8 @@ export type MarketPurchase = {
   product: string;
   price: number;
   quantity?: number;
+  unitPrice?: number;
+  priceMode?: "total" | "unit";
   date: string;
   createdAt: string;
 };
