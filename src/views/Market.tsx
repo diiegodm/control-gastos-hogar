@@ -41,6 +41,7 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
   const [consumingId, setConsumingId] = useState<string | null>(null);
   const [inventorySearch, setInventorySearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"Todas" | ProductCategory>("Todas");
+  const [finalizing, setFinalizing] = useState(false);
   const [checkedRestockIds, setCheckedRestockIds] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem(CHECKLIST_KEY) ?? "[]") as string[]);
@@ -69,6 +70,11 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
         const bChecked = checkedRestockIds.has(b.id) ? 1 : 0;
         return aChecked - bChecked || a.product.localeCompare(b.product);
       }),
+    [checkedRestockIds, restock],
+  );
+
+  const checkedProducts = useMemo(
+    () => restock.filter((product) => checkedRestockIds.has(product.id)),
     [checkedRestockIds, restock],
   );
 
@@ -136,6 +142,23 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
     setBuyingId(null);
   }
 
+  async function submitFinalPurchase(formData: FormData) {
+    const items = checkedProducts.map((product) => ({
+      productId: product.id,
+      quantity: Math.max(1, numberValue(formData.get(`quantity-${product.id}`))),
+      price: numberValue(formData.get(`price-${product.id}`)),
+      priceMode: String(formData.get(`priceMode-${product.id}`) || "total") as "total" | "unit",
+    }));
+
+    await finance.completeMarketPurchase(items);
+    setCheckedRestockIds((current) => {
+      const next = new Set(current);
+      checkedProducts.forEach((product) => next.delete(product.id));
+      return next;
+    });
+    setFinalizing(false);
+  }
+
   async function submitConsumption(product: MarketProduct, formData: FormData) {
     const quantity = Math.max(1, Math.floor(numberValue(formData.get("quantity"))));
     await finance.adjustProductQuantity(product.id, -quantity);
@@ -201,6 +224,93 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
                 setShowForm(false);
               }}
             >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </Card>
+    );
+  }
+
+  function FinalizePurchasePanel() {
+    if (!finalizing) return null;
+
+    if (checkedProducts.length === 0) {
+      return (
+        <Card className="p-3">
+          <p className="font-black text-slate-950">No hay productos marcados</p>
+          <p className="mt-1 text-sm text-slate-500">Marca productos en la lista para finalizar la compra.</p>
+        </Card>
+      );
+    }
+
+    return (
+      <Card>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-black text-slate-950">Finalizar compra</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Confirma cantidad, precio y si el precio es total o por unidad.
+            </p>
+          </div>
+          <button className="btn-secondary shrink-0" type="button" onClick={() => setFinalizing(false)}>
+            Cerrar
+          </button>
+        </div>
+
+        <form
+          className="mt-4 space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitFinalPurchase(new FormData(event.currentTarget));
+          }}
+        >
+          {checkedProducts.map((product) => {
+            const suggested = suggestedQuantity(product);
+            return (
+              <div key={product.id} className="rounded-2xl bg-blue-50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-black text-blue-950">{product.product}</p>
+                    <p className="text-sm text-blue-700">
+                      Actual {product.currentQty} · mínimo {product.minQty} · sugerido {suggested}
+                    </p>
+                  </div>
+                  <p className="font-black text-blue-950">{currency(product.lastPrice)}</p>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr]">
+                  <input
+                    className="input h-11"
+                    name={`quantity-${product.id}`}
+                    type="number"
+                    min="1"
+                    step="1"
+                    defaultValue={suggested}
+                    placeholder="Cantidad"
+                  />
+                  <input
+                    className="input h-11"
+                    name={`price-${product.id}`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    defaultValue={product.lastPrice}
+                    placeholder="Precio"
+                  />
+                  <select className="input h-11" name={`priceMode-${product.id}`} defaultValue="total">
+                    <option value="total">Precio total / paquete</option>
+                    <option value="unit">Precio por unidad</option>
+                  </select>
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="grid grid-cols-2 gap-2">
+            <button className="btn-primary" type="submit">
+              Confirmar compra
+            </button>
+            <button className="btn-secondary" type="button" onClick={() => setFinalizing(false)}>
               Cancelar
             </button>
           </div>
@@ -412,7 +522,13 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
                     Limpiar
                   </button>
                 </div>
+                {checkedProducts.length > 0 ? (
+                  <button className="btn-primary mt-3 w-full" type="button" onClick={() => setFinalizing(true)}>
+                    Finalizar compra ({checkedProducts.length})
+                  </button>
+                ) : null}
               </Card>
+              <FinalizePurchasePanel />
               {sortedRestock.map((product) => (
                 <ProductCard
                   key={product.id}

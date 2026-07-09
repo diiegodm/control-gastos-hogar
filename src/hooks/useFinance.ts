@@ -42,6 +42,12 @@ const emptyState: FinanceState = {
 type MovementInput = Omit<Movement, "id" | "createdAt" | "updatedAt">;
 type FixedInput = Omit<FixedExpense, "id" | "createdAt" | "updatedAt">;
 type ProductInput = Omit<MarketProduct, "id" | "createdAt" | "updatedAt">;
+type PurchaseInput = {
+  productId: string;
+  price: number;
+  quantity: number;
+  priceMode: "total" | "unit";
+};
 
 function normalizeProductName(name: string): string {
   return name
@@ -348,6 +354,53 @@ export function useFinance(selectedMonth: number) {
     [refresh, state.products],
   );
 
+  const completeMarketPurchase = useCallback(
+    async (items: PurchaseInput[]) => {
+      const now = new Date().toISOString();
+      const productById = new Map(state.products.map((product) => [product.id, product]));
+
+      const updates = items
+        .map((item) => {
+          const product = productById.get(item.productId);
+          if (!product) return null;
+
+          const purchasedQty = Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+          const enteredPrice = Number.isFinite(item.price) && item.price > 0 ? item.price : product.lastPrice;
+          const purchaseTotal = item.priceMode === "unit" ? enteredPrice * purchasedQty : enteredPrice;
+
+          const updatedProduct: MarketProduct = {
+            ...product,
+            lastPrice: enteredPrice,
+            lastPurchaseDate: todayISO(),
+            currentQty: product.currentQty + purchasedQty,
+            updatedAt: now,
+          };
+
+          const purchase: MarketPurchase = {
+            id: createId("buy"),
+            productId: product.id,
+            product: product.product,
+            price: purchaseTotal,
+            quantity: purchasedQty,
+            unitPrice: item.priceMode === "unit" ? enteredPrice : undefined,
+            priceMode: item.priceMode,
+            date: todayISO(),
+            createdAt: now,
+          };
+
+          return { updatedProduct, purchase };
+        })
+        .filter((item): item is { updatedProduct: MarketProduct; purchase: MarketPurchase } => item !== null);
+
+      await Promise.all([
+        ...updates.map(({ updatedProduct }) => putItem("products", updatedProduct)),
+        ...updates.map(({ purchase }) => putItem("purchases", purchase)),
+      ]);
+      await refresh();
+    },
+    [refresh, state.products],
+  );
+
   const adjustProductQuantity = useCallback(
     async (id: string, delta: number) => {
       const product = state.products.find((item) => item.id === id);
@@ -399,6 +452,7 @@ export function useFinance(selectedMonth: number) {
     updateProduct,
     removeProduct,
     markProductBought,
+    completeMarketPurchase,
     adjustProductQuantity,
     backup,
     restore,
