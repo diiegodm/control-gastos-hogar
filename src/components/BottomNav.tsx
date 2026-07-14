@@ -1,4 +1,4 @@
-export type Section = "dashboard" | "movements" | "fixed" | "market";
+export type Section = "dashboard" | "movements" | "fixed" | "market" | "nutrition";
 
 type NavItem = {
   id: Section;
@@ -11,6 +11,7 @@ const items: NavItem[] = [
   { id: "movements", label: "Movimientos", icon: "⇄" },
   { id: "fixed", label: "Fijos", icon: "□" },
   { id: "market", label: "Mercado", icon: "▤" },
+  { id: "nutrition", label: "Comer", icon: "◐" },
 ];
 
 type Props = {
@@ -21,7 +22,7 @@ type Props = {
 export function BottomNav({ active, onChange }: Props) {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/80 bg-white/90 px-3 pb-[calc(env(safe-area-inset-bottom)+0.55rem)] pt-2 shadow-[0_-14px_34px_rgba(15,23,42,0.08)] backdrop-blur-xl">
-      <div className="mx-auto grid max-w-md grid-cols-4 gap-1">
+      <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
         {items.map((item) => {
           const selected = item.id === active;
           return (

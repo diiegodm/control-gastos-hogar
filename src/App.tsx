@@ -4,7 +4,9 @@ import { Dashboard } from "./views/Dashboard";
 import { FixedExpenses } from "./views/FixedExpenses";
 import { Market } from "./views/Market";
 import { Movements } from "./views/Movements";
+import { Nutrition } from "./views/Nutrition";
 import { useFinance } from "./hooks/useFinance";
+import { useNutrition } from "./hooks/useNutrition";
 import { months } from "./lib/date";
 import type { BackupPayload } from "./types/finance";
 
@@ -14,6 +16,7 @@ export default function App() {
   const [section, setSection] = useState<Section>("dashboard");
   const [selectedMonth, setSelectedMonth] = useState(initialMonth);
   const finance = useFinance(selectedMonth);
+  const nutrition = useNutrition();
   const importRef = useRef<HTMLInputElement | null>(null);
 
   async function importFile(file: File | undefined) {
@@ -87,6 +90,7 @@ export default function App() {
         {section === "market" ? (
           <Market selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />
         ) : null}
+        {section === "nutrition" ? <Nutrition nutrition={nutrition} /> : null}
 
         <div className="mt-5 grid grid-cols-2 gap-3 sm:hidden">
           <button className="btn-secondary" type="button" onClick={() => void finance.backup()}>
