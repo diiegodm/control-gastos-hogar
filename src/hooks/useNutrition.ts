@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   CookSession,
   CookTaskStatus,
+  FoodNote,
+  FoodNoteInput,
   MealSlot,
   MealStatus,
   NutritionState,
   PreparedMeal,
   Recipe,
+  RecipeInput,
   WeeklyMeal,
 } from "../types/nutrition";
 
@@ -14,6 +17,23 @@ const STORAGE_KEY = "finanzas-hogar-nutrition-v1";
 
 const dayLabels = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 const mealSlots: MealSlot[] = ["Desayuno", "Comida", "Cena"];
+
+const recipeGradients = [
+  "linear-gradient(135deg,#dbeafe,#bfdbfe)",
+  "linear-gradient(135deg,#dcfce7,#bbf7d0)",
+  "linear-gradient(135deg,#fef3c7,#fed7aa)",
+  "linear-gradient(135deg,#fee2e2,#fecaca)",
+  "linear-gradient(135deg,#f8fafc,#cbd5e1)",
+  "linear-gradient(135deg,#e0f2fe,#ccfbf1)",
+];
+
+function makeId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function nowISO(): string {
+  return new Date().toISOString();
+}
 
 const recipes: Recipe[] = [
   {
@@ -158,6 +178,17 @@ function initialWeeklyPlan(): WeeklyMeal[] {
 
 const defaultState: NutritionState = {
   recipes,
+  notes: [
+    {
+      id: "note_batch",
+      title: "Ideas para cocinar el domingo",
+      category: "Ideas",
+      body: "Preparar una base de arroz, una proteína y una verdura para resolver comidas rápidas.",
+      important: true,
+      createdAt: nowISO(),
+      updatedAt: nowISO(),
+    },
+  ],
   preparedMeals: [
     { id: "p_pollo", recipeId: "r_pollo_horno", portions: 3, status: "Preparado", expiresInDays: 2 },
     { id: "p_lentejas", recipeId: "r_lentejas", portions: 4, status: "Congelado", expiresInDays: 30 },
@@ -195,6 +226,7 @@ function loadState(): NutritionState {
       preparedMeals: parsed.preparedMeals ?? defaultState.preparedMeals,
       weeklyPlan: parsed.weeklyPlan?.length ? parsed.weeklyPlan : defaultState.weeklyPlan,
       cookSessions: parsed.cookSessions?.length ? parsed.cookSessions : defaultState.cookSessions,
+      notes: parsed.notes ?? defaultState.notes,
     };
   } catch {
     return defaultState;
@@ -250,6 +282,77 @@ export function useNutrition() {
     }));
   }
 
+  function addRecipe(input: RecipeInput) {
+    const recipe: Recipe = {
+      ...input,
+      id: makeId("recipe"),
+      image: input.image || recipeGradients[state.recipes.length % recipeGradients.length],
+      isCustom: true,
+      createdAt: nowISO(),
+      updatedAt: nowISO(),
+    };
+    setState((current) => ({ ...current, recipes: [recipe, ...current.recipes] }));
+    return recipe;
+  }
+
+  function updateRecipe(id: string, input: RecipeInput) {
+    setState((current) => ({
+      ...current,
+      recipes: current.recipes.map((recipe) =>
+        recipe.id === id
+          ? {
+              ...recipe,
+              ...input,
+              image: input.image || recipe.image,
+              updatedAt: nowISO(),
+            }
+          : recipe,
+      ),
+    }));
+  }
+
+  function deleteRecipe(id: string) {
+    setState((current) => {
+      const fallbackRecipeId = current.recipes.find((recipe) => recipe.id !== id)?.id;
+      if (!fallbackRecipeId) return current;
+      return {
+        ...current,
+        recipes: current.recipes.filter((recipe) => recipe.id !== id),
+        preparedMeals: current.preparedMeals.filter((meal) => meal.recipeId !== id),
+        weeklyPlan: current.weeklyPlan.map((meal) =>
+          meal.recipeId === id ? { ...meal, recipeId: fallbackRecipeId, status: "Pendiente" } : meal,
+        ),
+      };
+    });
+  }
+
+  function addNote(input: FoodNoteInput) {
+    const timestamp = nowISO();
+    setState((current) => ({
+      ...current,
+      notes: [
+        {
+          ...input,
+          id: makeId("note"),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        ...current.notes,
+      ],
+    }));
+  }
+
+  function updateNote(id: string, input: FoodNoteInput) {
+    setState((current) => ({
+      ...current,
+      notes: current.notes.map((note) => (note.id === id ? { ...note, ...input, updatedAt: nowISO() } : note)),
+    }));
+  }
+
+  function deleteNote(id: string) {
+    setState((current) => ({ ...current, notes: current.notes.filter((note) => note.id !== id) }));
+  }
+
   function generateWeek() {
     const lunchDinner = state.recipes.filter((recipe) => recipe.kind !== "desayuno");
     const breakfasts = state.recipes.filter((recipe) => recipe.kind === "desayuno" || recipe.id.startsWith("r_desayuno"));
@@ -280,6 +383,12 @@ export function useNutrition() {
     recipeName,
     updateWeeklyMeal,
     updateTaskStatus,
+    addRecipe,
+    updateRecipe,
+    deleteRecipe,
+    addNote,
+    updateNote,
+    deleteNote,
     generateWeek,
   };
 }

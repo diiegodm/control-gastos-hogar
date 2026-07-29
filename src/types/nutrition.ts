@@ -13,7 +13,8 @@ export type RecipeKind =
   | "arroz"
   | "verduras"
   | "huevos"
-  | "desayuno";
+  | "desayuno"
+  | "otros";
 
 export type Recipe = {
   id: string;
@@ -31,6 +32,32 @@ export type Recipe = {
   freezerMonths: number;
   tips: string;
   pairsWith: string[];
+  isCustom?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type RecipeInput = Omit<Recipe, "id" | "image" | "isCustom" | "createdAt" | "updatedAt"> & {
+  image?: string;
+};
+
+export type FoodNoteCategory = "Cocina" | "Compra" | "Casa" | "Ideas" | "Importante";
+
+export type FoodNote = {
+  id: string;
+  title: string;
+  category: FoodNoteCategory;
+  body: string;
+  important: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FoodNoteInput = {
+  title: string;
+  category: FoodNoteCategory;
+  body: string;
+  important: boolean;
 };
 
 export type PreparedMeal = {
@@ -67,4 +94,5 @@ export type NutritionState = {
   preparedMeals: PreparedMeal[];
   weeklyPlan: WeeklyMeal[];
   cookSessions: CookSession[];
+  notes: FoodNote[];
 };
