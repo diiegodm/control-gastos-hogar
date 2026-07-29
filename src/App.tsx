@@ -81,7 +81,12 @@ export default function App() {
 
       <main className="mx-auto max-w-5xl px-4 pb-28 pt-5">
         {section === "dashboard" ? (
-          <Dashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />
+          <Dashboard
+            selectedMonth={selectedMonth}
+            onMonthChange={setSelectedMonth}
+            finance={finance}
+            onOpenNutrition={() => setSection("nutrition")}
+          />
         ) : null}
         {section === "movements" ? (
           <Movements selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />

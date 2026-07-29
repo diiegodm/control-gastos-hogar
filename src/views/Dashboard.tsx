@@ -23,6 +23,7 @@ type Props = {
   selectedMonth: number;
   onMonthChange: (month: number) => void;
   finance: Finance;
+  onOpenNutrition?: () => void;
 };
 
 const chartColors = ["#2563EB", "#14B8A6", "#F59E0B", "#EF4444", "#8B5CF6", "#22C55E", "#64748B"];
@@ -33,7 +34,7 @@ const alertClasses = {
   red: "bg-rose-50 text-rose-700 ring-rose-100",
 };
 
-export function Dashboard({ selectedMonth, onMonthChange, finance }: Props) {
+export function Dashboard({ selectedMonth, onMonthChange, finance, onOpenNutrition }: Props) {
   const { dashboard } = finance;
   const selected = months.find((month) => month.value === selectedMonth);
 
@@ -48,6 +49,25 @@ export function Dashboard({ selectedMonth, onMonthChange, finance }: Props) {
       </div>
 
       <MonthSelector value={selectedMonth} onChange={onMonthChange} />
+
+      {onOpenNutrition ? (
+        <button
+          className="w-full rounded-[1.35rem] border border-emerald-100 bg-emerald-50 p-4 text-left shadow-sm transition hover:bg-emerald-100 active:scale-[0.99]"
+          type="button"
+          onClick={onOpenNutrition}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-emerald-700">Alimentación</p>
+              <p className="mt-1 text-lg font-black text-slate-950">Abrir Comer</p>
+              <p className="mt-1 text-sm font-medium text-slate-600">Menú semanal, recetas, cocina y notas.</p>
+            </div>
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-xl shadow-sm">
+              ◐
+            </span>
+          </div>
+        </button>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Ingresos" value={currency(dashboard.income)} tone="green" />
