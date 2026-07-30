@@ -60,7 +60,7 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, onOpenNutriti
             <div>
               <p className="text-xs font-black uppercase tracking-[0.12em] text-emerald-700">Alimentación</p>
               <p className="mt-1 text-lg font-black text-slate-950">Abrir Comer</p>
-              <p className="mt-1 text-sm font-medium text-slate-600">Menú semanal, recetas, cocina y notas.</p>
+              <p className="mt-1 text-sm font-medium text-slate-600">Menú semanal, recetas y cocina.</p>
             </div>
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-xl shadow-sm">
               ◐

@@ -41,25 +41,6 @@ export type RecipeInput = Omit<Recipe, "id" | "image" | "isCustom" | "createdAt"
   image?: string;
 };
 
-export type FoodNoteCategory = "Cocina" | "Compra" | "Casa" | "Ideas" | "Importante";
-
-export type FoodNote = {
-  id: string;
-  title: string;
-  category: FoodNoteCategory;
-  body: string;
-  important: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type FoodNoteInput = {
-  title: string;
-  category: FoodNoteCategory;
-  body: string;
-  important: boolean;
-};
-
 export type PreparedMeal = {
   id: string;
   recipeId: string;
@@ -94,5 +75,4 @@ export type NutritionState = {
   preparedMeals: PreparedMeal[];
   weeklyPlan: WeeklyMeal[];
   cookSessions: CookSession[];
-  notes: FoodNote[];
 };
