@@ -4,9 +4,9 @@ import { Dashboard } from "./views/Dashboard";
 import { FixedExpenses } from "./views/FixedExpenses";
 import { Market } from "./views/Market";
 import { Movements } from "./views/Movements";
-import { Nutrition } from "./views/Nutrition";
+import { Notes } from "./views/Notes";
 import { useFinance } from "./hooks/useFinance";
-import { useNutrition } from "./hooks/useNutrition";
+import { useNotes } from "./hooks/useNotes";
 import { months } from "./lib/date";
 import type { BackupPayload } from "./types/finance";
 
@@ -16,7 +16,7 @@ export default function App() {
   const [section, setSection] = useState<Section>("dashboard");
   const [selectedMonth, setSelectedMonth] = useState(initialMonth);
   const finance = useFinance(selectedMonth);
-  const nutrition = useNutrition();
+  const notes = useNotes();
   const importRef = useRef<HTMLInputElement | null>(null);
 
   async function importFile(file: File | undefined) {
@@ -81,12 +81,7 @@ export default function App() {
 
       <main className="mx-auto max-w-5xl px-4 pb-28 pt-5">
         {section === "dashboard" ? (
-          <Dashboard
-            selectedMonth={selectedMonth}
-            onMonthChange={setSelectedMonth}
-            finance={finance}
-            onOpenNutrition={() => setSection("nutrition")}
-          />
+          <Dashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />
         ) : null}
         {section === "movements" ? (
           <Movements selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />
@@ -95,7 +90,7 @@ export default function App() {
         {section === "market" ? (
           <Market selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />
         ) : null}
-        {section === "nutrition" ? <Nutrition nutrition={nutrition} /> : null}
+        {section === "notes" ? <Notes notes={notes} /> : null}
 
         <div className="mt-5 grid grid-cols-2 gap-3 sm:hidden">
           <button className="btn-secondary" type="button" onClick={() => void finance.backup()}>

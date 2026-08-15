@@ -1,4 +1,4 @@
-export type Section = "dashboard" | "movements" | "fixed" | "market" | "nutrition";
+export type Section = "dashboard" | "movements" | "fixed" | "market" | "notes";
 
 type NavItem = {
   id: Section;
@@ -11,7 +11,7 @@ const items: NavItem[] = [
   { id: "movements", label: "Movimientos", icon: "⇄" },
   { id: "fixed", label: "Fijos", icon: "□" },
   { id: "market", label: "Mercado", icon: "▤" },
-  { id: "nutrition", label: "Comer", icon: "◐" },
+  { id: "notes", label: "Notas", icon: "✎" },
 ];
 
 type Props = {
