@@ -1,4 +1,4 @@
-const CACHE_NAME = "finanzas-hogar-v4";
+const CACHE_NAME = "finanzas-hogar-v5";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {

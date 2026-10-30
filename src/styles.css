@@ -4,66 +4,80 @@
 
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #0f172a;
-  background: #f6f7fb;
+  color: #dce4e8;
+  background: #111820;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-html {
-  min-height: 100%;
-  background: #f6f7fb;
-}
-
-body {
-  min-height: 100%;
-  margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(191, 219, 254, 0.55), transparent 30rem),
-    radial-gradient(circle at 85% 10%, rgba(204, 251, 241, 0.5), transparent 24rem),
-    #f6f7fb;
-}
-
-button,
-input,
-select {
-  font: inherit;
-}
-
-button {
-  -webkit-tap-highlight-color: transparent;
-}
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; }
+html { background: #111820; }
+body { min-height: 100dvh; margin: 0; background: #111820; }
+button, input, select, textarea { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
 
 @layer utilities {
-  .bg-app {
-    background:
-      radial-gradient(circle at top left, rgba(191, 219, 254, 0.55), transparent 30rem),
-      radial-gradient(circle at 85% 10%, rgba(204, 251, 241, 0.5), transparent 24rem),
-      #f6f7fb;
-  }
-
+  .bg-app { background: #111820; }
 }
 
 @layer components {
   .input {
-    @apply h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base font-semibold text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-4 focus:ring-slate-200;
+    @apply h-12 w-full rounded-xl border px-4 text-base font-semibold outline-none transition;
+    border-color: #3b4a52;
+    background: #202d36;
+    color: #dce4e8;
+    box-shadow: none;
   }
-
+  .input::placeholder { color: #788080; }
+  .input:focus { border-color: #b7f34a; box-shadow: 0 0 0 3px rgb(183 243 74 / 12%); }
   .btn-primary {
-    @apply inline-flex min-h-11 items-center justify-center rounded-2xl bg-slate-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.98];
+    @apply inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2 text-sm font-black transition active:scale-[0.98];
+    background: #b7f34a;
+    color: #10140b;
   }
-
+  .btn-primary:hover { background: #c6f878; }
   .btn-secondary {
-    @apply inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm transition hover:bg-slate-50 active:scale-[0.98];
+    @apply inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2 text-sm font-black transition active:scale-[0.98];
+    border-color: #3b4a52;
+    background: #202d36;
+    color: #e9eeee;
   }
-
+  .btn-secondary:hover { background: #2b3a43; }
   .btn-danger {
-    @apply inline-flex min-h-11 items-center justify-center rounded-2xl bg-rose-50 px-4 py-2 text-sm font-black text-rose-700 ring-1 ring-rose-100 transition hover:bg-rose-100 active:scale-[0.98];
+    @apply inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2 text-sm font-black transition active:scale-[0.98];
+    background: #351a20;
+    color: #ff8291;
+    box-shadow: inset 0 0 0 1px #592631;
   }
 }
+
+/* Dark surface defaults for the existing finance views. */
+#root .bg-white { background-color: #202d36 !important; }
+#root .bg-slate-50 { background-color: #1b2730 !important; }
+#root .bg-slate-100 { background-color: #26343c !important; }
+#root .border-slate-200, #root .border-white\/80, #root .border-white\/70 { border-color: #2a3032 !important; }
+#root .text-slate-950, #root .text-slate-900, #root .text-slate-800 { color: #f1f4f2 !important; }
+#root .text-slate-700 { color: #d5dbd8 !important; }
+#root .text-slate-600, #root .text-slate-500 { color: #98a19d !important; }
+#root .text-slate-400 { color: #77817c !important; }
+#root .bg-emerald-50 { background-color: #1a2a14 !important; }
+#root .text-emerald-700, #root .text-emerald-600 { color: #b5ff4a !important; }
+#root .ring-emerald-100 { --tw-ring-color: #344a25 !important; }
+#root .bg-amber-50 { background-color: #302713 !important; }
+#root .text-amber-700 { color: #ffd166 !important; }
+#root .ring-amber-100 { --tw-ring-color: #51411d !important; }
+#root .bg-rose-50 { background-color: #32191e !important; }
+#root .text-rose-700 { color: #ff8795 !important; }
+#root .ring-rose-100 { --tw-ring-color: #512830 !important; }
+#root .bg-blue-50 { background-color: #16252c !important; }
+#root .text-blue-700, #root .text-blue-950, #root .text-blue-900 { color: #76d7e1 !important; }
+#root .ring-slate-200 { --tw-ring-color: #303638 !important; }
+#root header { border-color: #2b3941 !important; background: rgb(17 24 32 / 92%) !important; }
+#root nav { border-color: #2b3941 !important; background: rgb(23 33 41 / 96%) !important; }
+#root nav .bg-slate-950 { background-color: #b7f34a !important; color: #18210d !important; }
+#root .bg-app { background-color: #111820 !important; }
+#root .shadow-soft { box-shadow: 0 14px 36px rgb(0 0 0 / 24%); }

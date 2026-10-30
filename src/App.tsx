@@ -1,12 +1,15 @@
 import { useRef, useState } from "react";
 import { BottomNav, type Section } from "./components/BottomNav";
 import { Dashboard } from "./views/Dashboard";
-import { FixedExpenses } from "./views/FixedExpenses";
-import { Market } from "./views/Market";
-import { Movements } from "./views/Movements";
-import { Notes } from "./views/Notes";
+import { Spaces } from "./views/Spaces";
+import { Analysis } from "./views/Analysis";
+import { Profile } from "./views/Profile";
+import { QuickMovement } from "./components/QuickMovement";
 import { useFinance } from "./hooks/useFinance";
 import { useNotes } from "./hooks/useNotes";
+import { useSpaces } from "./hooks/useSpaces";
+import { useLocalAuth } from "./hooks/useLocalAuth";
+import { LocalAccess } from "./components/LocalAccess";
 import { months } from "./lib/date";
 import type { BackupPayload } from "./types/finance";
 
@@ -15,8 +18,11 @@ const initialMonth = new Date().getMonth();
 export default function App() {
   const [section, setSection] = useState<Section>("dashboard");
   const [selectedMonth, setSelectedMonth] = useState(initialMonth);
+  const [showQuickMovement, setShowQuickMovement] = useState(false);
   const finance = useFinance(selectedMonth);
   const notes = useNotes();
+  const spaces = useSpaces();
+  const auth = useLocalAuth();
   const importRef = useRef<HTMLInputElement | null>(null);
 
   async function importFile(file: File | undefined) {
@@ -32,6 +38,10 @@ export default function App() {
     } finally {
       if (importRef.current) importRef.current.value = "";
     }
+  }
+
+  if (!auth.ready || auth.needsSetup || !auth.unlocked) {
+    return <LocalAccess auth={auth} />;
   }
 
   if (finance.loading) {
@@ -55,16 +65,10 @@ export default function App() {
             className="text-left"
             aria-label="Ir al Dashboard"
           >
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Hogar</p>
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-[#b7f34a]">FINANZAS HOGAR</p>
             <p className="text-xl font-black tracking-normal text-slate-950">Finanzas</p>
           </button>
           <div className="flex items-center gap-2">
-            <button className="btn-secondary hidden sm:inline-flex" type="button" onClick={() => void finance.backup()}>
-              Exportar
-            </button>
-            <button className="btn-secondary hidden sm:inline-flex" type="button" onClick={() => importRef.current?.click()}>
-              Importar
-            </button>
             <span className="rounded-full bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm">
               {months[selectedMonth].shortLabel}
             </span>
@@ -79,30 +83,17 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 pb-28 pt-5">
+      <main className="mx-auto max-w-5xl px-4 pb-28 pt-5 md:pb-10 md:pt-24">
         {section === "dashboard" ? (
-          <Dashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />
+          <Dashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
         ) : null}
-        {section === "movements" ? (
-          <Movements selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />
-        ) : null}
-        {section === "fixed" ? <FixedExpenses finance={finance} /> : null}
-        {section === "market" ? (
-          <Market selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} />
-        ) : null}
-        {section === "notes" ? <Notes notes={notes} /> : null}
-
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:hidden">
-          <button className="btn-secondary" type="button" onClick={() => void finance.backup()}>
-            Exportar JSON
-          </button>
-          <button className="btn-secondary" type="button" onClick={() => importRef.current?.click()}>
-            Importar JSON
-          </button>
-        </div>
+        {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
+        {section === "analysis" ? <Analysis finance={finance} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
+        {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void finance.backup()} onImport={() => importRef.current?.click()} /> : null}
       </main>
 
-      <BottomNav active={section} onChange={setSection} />
+      <BottomNav active={section} onChange={setSection} onAdd={() => setShowQuickMovement(true)} />
+      {showQuickMovement ? <QuickMovement finance={finance} onClose={() => setShowQuickMovement(false)} /> : null}
     </div>
   );
 }

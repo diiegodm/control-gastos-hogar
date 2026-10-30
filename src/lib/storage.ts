@@ -6,9 +6,11 @@ import type {
   Movement,
 } from "../types/finance";
 import { currentYear, toISODate, todayISO } from "./date";
+import type { SpacesState } from "../types/spaces";
 
 const DB_NAME = "finanzas-hogar-db";
 const DB_VERSION = 1;
+const SPACES_KEY = "finanzas-hogar-spaces-v1";
 
 type StoreName = "movements" | "fixedExpenses" | "products" | "purchases";
 
@@ -268,6 +270,14 @@ export async function exportBackup(): Promise<BackupPayload> {
     getAll("purchases"),
   ]);
 
+  let spaces: SpacesState | undefined;
+  try {
+    const rawSpaces = localStorage.getItem(SPACES_KEY);
+    if (rawSpaces) spaces = JSON.parse(rawSpaces) as SpacesState;
+  } catch {
+    spaces = undefined;
+  }
+
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -275,6 +285,7 @@ export async function exportBackup(): Promise<BackupPayload> {
     fixedExpenses,
     products,
     purchases,
+    spaces,
   };
 }
 
@@ -289,6 +300,11 @@ export async function importBackup(payload: BackupPayload): Promise<void> {
     clearStore("products"),
     clearStore("purchases"),
   ]);
+
+  if (payload.spaces) {
+    localStorage.setItem(SPACES_KEY, JSON.stringify(payload.spaces));
+    window.dispatchEvent(new Event("spaces-restored"));
+  }
 
   await Promise.all([
     ...payload.movements.map((item) => putItem("movements", item)),

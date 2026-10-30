@@ -79,6 +79,7 @@ export type BackupPayload = {
   fixedExpenses: FixedExpense[];
   products: MarketProduct[];
   purchases: MarketPurchase[];
+  spaces?: { budgets: import("./spaces").BudgetSpace[]; goals: import("./spaces").GoalSpace[] };
 };
 
 export const movementCategories: MovementCategory[] = [
