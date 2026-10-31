@@ -88,5 +88,6 @@ button { -webkit-tap-highlight-color: transparent; }
 #root header { border-color: #2b3941 !important; background: rgb(17 24 32 / 92%) !important; }
 #root nav { border-color: #2b3941 !important; background: rgb(23 33 41 / 96%) !important; }
 #root nav .bg-slate-950 { background-color: #b7f34a !important; color: #18210d !important; }
+body[data-fixed-modal="open"] #root nav { display: none; }
 #root .bg-app { background-color: #111820 !important; }
 #root .shadow-soft { box-shadow: 0 14px 36px rgb(0 0 0 / 24%); }

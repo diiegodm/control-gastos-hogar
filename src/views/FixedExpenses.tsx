@@ -29,7 +29,24 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
   const [selected, setSelected] = useState<(FixedExpense & { dueDateForSelectedMonth: string; daysRemaining: number; alert: "green" | "yellow" | "red" }) | null>(null);
   const [mode, setMode] = useState<ModalMode | null>(null);
   const [error, setError] = useState("");
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const modalRef = useRef<HTMLElement | null>(null);
+
+  function revealField(target: EventTarget) {
+    if (!(target instanceof HTMLElement)) return;
+    window.setTimeout(() => {
+      const panel = modalRef.current;
+      if (!panel?.contains(target)) return;
+      const field = target.getBoundingClientRect();
+      const bounds = panel.getBoundingClientRect();
+      const margin = 24;
+      if (field.bottom > bounds.bottom - margin) {
+        panel.scrollBy({ top: field.bottom - bounds.bottom + margin, behavior: "smooth" });
+      } else if (field.top < bounds.top + margin) {
+        panel.scrollBy({ top: field.top - bounds.top - margin, behavior: "smooth" });
+      }
+    }, 100);
+  }
 
   useEffect(() => {
     if (!mode) return;
@@ -38,14 +55,19 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
     const previousHeight = root.style.getPropertyValue("--modal-vh");
     const previousTop = root.style.getPropertyValue("--modal-top");
     const previousOverflow = document.body.style.overflow;
+    const previousModalAttribute = document.body.getAttribute("data-fixed-modal");
+    const initialViewportHeight = viewport?.height ?? window.innerHeight;
     document.body.style.overflow = "hidden";
+    document.body.setAttribute("data-fixed-modal", "open");
 
     const syncViewport = (revealFocusedField = false) => {
-      root.style.setProperty("--modal-vh", `${viewport?.height ?? window.innerHeight}px`);
+      const height = viewport?.height ?? window.innerHeight;
+      root.style.setProperty("--modal-vh", `${height}px`);
       root.style.setProperty("--modal-top", `${viewport?.offsetTop ?? 0}px`);
+      setKeyboardOpen(height < initialViewportHeight - 100);
       const focused = document.activeElement;
       if (revealFocusedField && focused instanceof HTMLElement && modalRef.current?.contains(focused)) {
-        window.setTimeout(() => focused.scrollIntoView({ block: "center", behavior: "smooth" }), 80);
+        revealField(focused);
       }
     };
     syncViewport();
@@ -60,6 +82,9 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
       viewport?.removeEventListener("scroll", updateViewport);
       window.removeEventListener("resize", revealFocusedField);
       document.body.style.overflow = previousOverflow;
+      if (previousModalAttribute) document.body.setAttribute("data-fixed-modal", previousModalAttribute);
+      else document.body.removeAttribute("data-fixed-modal");
+      setKeyboardOpen(false);
       if (previousHeight) root.style.setProperty("--modal-vh", previousHeight);
       else root.style.removeProperty("--modal-vh");
       if (previousTop) root.style.setProperty("--modal-top", previousTop);
@@ -154,8 +179,8 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
       </div>
 
       {mode ? (
-        <div className="fixed inset-x-0 z-50 flex items-end justify-center overflow-hidden bg-black/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm sm:items-center" style={{ top: "var(--modal-top, 0px)", height: "var(--modal-vh, 100dvh)" }} onClick={() => setMode(null)}>
-          <section ref={modalRef} data-fixed-modal-scroll className="min-w-0 w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-t-3xl border border-[#3b4a52] bg-[#202d36] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl" style={{ maxHeight: "calc(var(--modal-vh, 100dvh) - var(--modal-top, 0px) - env(safe-area-inset-top) - 0.75rem)", WebkitOverflowScrolling: "touch" }} onFocusCapture={(event) => { const target = event.target; window.setTimeout(() => { if (target instanceof HTMLElement) target.scrollIntoView({ block: "center", behavior: "smooth" }); }, 350); }} onClick={(event) => event.stopPropagation()}>
+        <div className={`fixed inset-x-0 z-50 flex justify-center overflow-hidden bg-black/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm ${keyboardOpen ? "items-start" : "items-center"}`} style={{ top: "var(--modal-top, 0px)", height: "var(--modal-vh, 100dvh)" }} onClick={() => setMode(null)}>
+          <section ref={modalRef} data-fixed-modal-scroll className="min-w-0 w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-3xl border border-[#3b4a52] bg-[#202d36] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl" style={{ maxHeight: "calc(var(--modal-vh, 100dvh) - env(safe-area-inset-top) - 1.5rem)", WebkitOverflowScrolling: "touch" }} onFocusCapture={(event) => revealField(event.target)} onClick={(event) => event.stopPropagation()}>
             {mode === "details" && selected ? (
               <>
                 <div className="flex items-start gap-3">
