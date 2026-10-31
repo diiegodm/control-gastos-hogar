@@ -160,7 +160,11 @@ export function useFinance(selectedMonth: number) {
     const available = income - fixedExpenses - variableExpenses;
     const totalSpent = fixedExpenses + variableExpenses;
 
-    const categoryData = movementCategories
+    const categoriesWithActivity = [...new Set([
+      ...movementCategories,
+      ...monthMovements.filter((item) => item.type === "Gasto").map((item) => item.category),
+    ])];
+    const categoryData = categoriesWithActivity
       .filter((category) => category !== "Ropa")
       .map((category) => ({
         category,

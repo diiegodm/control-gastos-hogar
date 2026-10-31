@@ -7,6 +7,7 @@ import { currency, numberValue } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { Movement, MovementCategory, MovementType } from "../types/finance";
 import { movementCategories } from "../types/finance";
+import type { BudgetSpace } from "../types/spaces";
 
 type Finance = ReturnType<typeof useFinance>;
 
@@ -14,10 +15,21 @@ type Props = {
   selectedMonth: number;
   onMonthChange: (month: number) => void;
   finance: Finance;
+  customCategories?: string[];
+  budgetSpaces?: BudgetSpace[];
+  onCreateCategory: (category: string) => string;
 };
 
-export function Movements({ selectedMonth, onMonthChange, finance }: Props) {
+export function Movements({ selectedMonth, onMonthChange, finance, customCategories = [], budgetSpaces = [], onCreateCategory }: Props) {
   const [editing, setEditing] = useState<Movement | null>(null);
+  const [formType, setFormType] = useState<MovementType>("Gasto");
+  const [category, setCategory] = useState("Mercado");
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+  const categories = useMemo(
+    () => [...new Set([...movementCategories, ...customCategories, ...finance.movements.map((movement) => movement.category)])],
+    [customCategories, finance.movements],
+  );
   const [categoryFilter, setCategoryFilter] = useState<"Todas" | MovementCategory>("Todas");
   const [typeFilter, setTypeFilter] = useState<"Todos" | MovementType>("Todos");
 
@@ -33,7 +45,8 @@ export function Movements({ selectedMonth, onMonthChange, finance }: Props) {
     const payload = {
       date: String(formData.get("date") || todayISO()),
       type: String(formData.get("type") || "Gasto") as MovementType,
-      category: String(formData.get("category") || "Otros") as MovementCategory,
+      category: category as MovementCategory,
+      budgetSpaceId: String(formData.get("budgetSpaceId") || "") || undefined,
       description: String(formData.get("description") || "").trim(),
       amount: numberValue(formData.get("amount")),
     };
@@ -44,6 +57,8 @@ export function Movements({ selectedMonth, onMonthChange, finance }: Props) {
       await finance.createMovement(payload);
     }
     setEditing(null);
+    setFormType("Gasto");
+    setCategory("Mercado");
   }
 
   async function remove(id: string) {
@@ -59,11 +74,12 @@ export function Movements({ selectedMonth, onMonthChange, finance }: Props) {
         <p className="mt-1 text-sm text-slate-500">Ingresos y gastos variables en una sola tabla.</p>
       </div>
 
-      <MonthSelector value={selectedMonth} onChange={onMonthChange} />
+      <MonthSelector value={selectedMonth} onChange={onMonthChange} label="Mes que estás consultando" />
 
       <Card>
         <h2 className="text-lg font-black text-slate-950">{editing ? "Editar movimiento" : "Nuevo movimiento"}</h2>
         <form
+          key={editing?.id ?? "new-movement"}
           className="mt-4 grid gap-3"
           onSubmit={(event) => {
             event.preventDefault();
@@ -72,25 +88,22 @@ export function Movements({ selectedMonth, onMonthChange, finance }: Props) {
           }}
         >
           <div className="grid grid-cols-2 gap-3">
-            <input className="input" name="date" type="date" defaultValue={editing?.date ?? todayISO()} required />
-            <select className="input" name="type" defaultValue={editing?.type ?? "Gasto"}>
+            <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Fecha del movimiento</span><input className="input" name="date" type="date" defaultValue={editing?.date ?? todayISO()} required /></label>
+            <select className="input" name="type" value={formType} onChange={(event) => setFormType(event.target.value as MovementType)}>
               <option>Ingreso</option>
               <option>Gasto</option>
             </select>
           </div>
-          <select className="input" name="category" defaultValue={editing?.category ?? "Mercado"}>
-            {movementCategories.map((category) => (
-              <option key={category}>{category}</option>
-            ))}
-          </select>
-          <input className="input" name="description" placeholder="Descripción" defaultValue={editing?.description ?? ""} required />
+          <div className="block"><label className="mb-1 block text-xs font-bold text-slate-400" htmlFor="movement-category">Categoría</label><select className="input" id="movement-category" name="category" value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select><button className="mt-2 text-sm font-bold text-[#586b26]" type="button" onClick={() => setShowNewCategory((value) => !value)}>{showNewCategory ? "Cancelar nueva categoría" : "+ Crear categoría"}</button>{showNewCategory ? <div className="mt-2 flex gap-2"><input className="input min-w-0 flex-1" value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="Nombre de la categoría" /><button className="btn-secondary shrink-0" type="button" onClick={() => { const saved = onCreateCategory(newCategory); if (saved) { setCategory(saved); setNewCategory(""); setShowNewCategory(false); } }}>Guardar</button></div> : null}</div>
+          {formType === "Gasto" ? <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Presupuesto asociado (opcional)</span><select className="input" name="budgetSpaceId" defaultValue={editing?.budgetSpaceId ?? ""}><option value="">Sin asignar</option>{budgetSpaces.filter((space) => !space.archived).map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label> : null}
+          <input className="input" name="description" placeholder="Concepto o descripción" defaultValue={editing?.description ?? ""} required />
           <input className="input" name="amount" type="number" min="0" step="0.01" placeholder="Monto" defaultValue={editing?.amount ?? ""} required />
           <div className="flex gap-2">
             <button className="btn-primary flex-1" type="submit">
               {editing ? "Guardar cambios" : "Crear movimiento"}
             </button>
             {editing ? (
-              <button className="btn-secondary" type="button" onClick={() => setEditing(null)}>
+              <button className="btn-secondary" type="button" onClick={() => { setEditing(null); setFormType("Gasto"); setCategory("Mercado"); }}>
                 Cancelar
               </button>
             ) : null}
@@ -106,7 +119,7 @@ export function Movements({ selectedMonth, onMonthChange, finance }: Props) {
         </select>
         <select className="input" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value as typeof categoryFilter)}>
           <option>Todas</option>
-          {movementCategories.map((category) => (
+          {categories.map((category) => (
             <option key={category}>{category}</option>
           ))}
         </select>
@@ -129,7 +142,7 @@ export function Movements({ selectedMonth, onMonthChange, finance }: Props) {
                 </p>
               </div>
               <div className="mt-3 flex gap-2">
-                <button className="btn-secondary flex-1" type="button" onClick={() => setEditing(movement)}>
+                  <button className="btn-secondary flex-1" type="button" onClick={() => { setEditing(movement); setFormType(movement.type); setCategory(movement.category); }}>
                   Editar
                 </button>
                 <button className="btn-danger flex-1" type="button" onClick={() => void remove(movement.id)}>

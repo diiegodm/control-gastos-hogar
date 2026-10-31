@@ -93,7 +93,7 @@ export default function App() {
       </main>
 
       <BottomNav active={section} onChange={setSection} onAdd={() => setShowQuickMovement(true)} />
-      {showQuickMovement ? <QuickMovement finance={finance} onClose={() => setShowQuickMovement(false)} /> : null}
+      {showQuickMovement ? <QuickMovement finance={finance} customCategories={[...spaces.budgetCategories, ...spaces.movementCategories]} budgetSpaces={spaces.budgets} onCreateCategory={spaces.addMovementCategory} onClose={() => setShowQuickMovement(false)} /> : null}
     </div>
   );
 }

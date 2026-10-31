@@ -3,13 +3,14 @@ import { months } from "../lib/date";
 type Props = {
   value: number;
   onChange: (month: number) => void;
+  label?: string;
 };
 
-export function MonthSelector({ value, onChange }: Props) {
+export function MonthSelector({ value, onChange, label = "Mes seleccionado" }: Props) {
   return (
     <label className="block">
       <span className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
-        Mes seleccionado
+        {label}
       </span>
       <select
         value={value}

@@ -8,7 +8,8 @@ export type MovementCategory =
   | "Salud"
   | "Mascotas"
   | "Ropa"
-  | "Otros";
+  | "Otros"
+  | (string & {});
 
 export type FixedStatus = "Pendiente" | "Pagado";
 
@@ -31,6 +32,7 @@ export type Movement = {
   date: string;
   type: MovementType;
   category: MovementCategory;
+  budgetSpaceId?: string;
   description: string;
   amount: number;
   createdAt: string;
@@ -79,7 +81,7 @@ export type BackupPayload = {
   fixedExpenses: FixedExpense[];
   products: MarketProduct[];
   purchases: MarketPurchase[];
-  spaces?: { budgets: import("./spaces").BudgetSpace[]; goals: import("./spaces").GoalSpace[] };
+  spaces?: import("./spaces").SpacesState;
 };
 
 export const movementCategories: MovementCategory[] = [

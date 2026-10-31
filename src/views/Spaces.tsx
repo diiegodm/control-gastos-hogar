@@ -30,26 +30,38 @@ export function Spaces({ finance, notes, spaces, selectedMonth, onMonthChange }:
   const [showGoal, setShowGoal] = useState(false);
   const activeBudgets = spaces.budgets.filter((space) => !space.archived);
   const activeGoals = spaces.goals.filter((space) => !space.archived);
-  const spendingByCategory = useMemo(() => {
-    const map = new Map<string, number>();
+  const spendingByBudget = useMemo(() => {
+    const totals = new Map(activeBudgets.map((space) => [space.id, 0]));
+    const firstBudgetByCategory = new Map<string, string>();
+    activeBudgets.forEach((space) => {
+      if (!firstBudgetByCategory.has(space.category)) firstBudgetByCategory.set(space.category, space.id);
+    });
+    const add = (budgetId: string | undefined, amount: number) => {
+      if (budgetId && totals.has(budgetId)) totals.set(budgetId, (totals.get(budgetId) ?? 0) + amount);
+    };
     for (const movement of finance.monthMovements) {
-      if (movement.type === "Gasto") map.set(movement.category, (map.get(movement.category) ?? 0) + movement.amount);
+      if (movement.type !== "Gasto") continue;
+      const target = movement.budgetSpaceId && totals.has(movement.budgetSpaceId)
+        ? movement.budgetSpaceId
+        : firstBudgetByCategory.get(movement.category);
+      add(target, movement.amount);
     }
-    for (const purchase of finance.monthPurchases) map.set("Mercado", (map.get("Mercado") ?? 0) + purchase.price);
-    return map;
-  }, [finance.monthMovements, finance.monthPurchases]);
+    const marketBudget = firstBudgetByCategory.get("Mercado");
+    for (const purchase of finance.monthPurchases) add(marketBudget, purchase.price);
+    return totals;
+  }, [activeBudgets, finance.monthMovements, finance.monthPurchases]);
 
   function submitBudget(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    spaces.saveBudget({ name: String(form.get("name")).trim(), category: String(form.get("category")) as BudgetSpace["category"], limit: Number(form.get("limit")), icon: String(form.get("icon") || "◉"), color: String(form.get("color") || colors[0]) });
+    spaces.saveBudget({ name: String(form.get("name")).trim(), categoryName: String(form.get("categoryName")).trim(), category: String(form.get("spendingCategory")) as BudgetSpace["category"], limit: Number(form.get("limit")), icon: String(form.get("icon") || "◉"), color: String(form.get("color") || colors[0]) });
     setShowBudget(false);
   }
 
   function submitGoal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    spaces.saveGoal({ name: String(form.get("name")).trim(), target: Number(form.get("target")), icon: String(form.get("icon") || "☆"), color: String(form.get("color") || colors[0]) });
+    spaces.saveGoal({ name: String(form.get("name")).trim(), categoryName: String(form.get("categoryName")).trim(), target: Number(form.get("target")), icon: String(form.get("icon") || "☆"), color: String(form.get("color") || colors[0]) });
     setShowGoal(false);
   }
 
@@ -58,7 +70,7 @@ export function Spaces({ finance, notes, spaces, selectedMonth, onMonthChange }:
     if (name === null) return;
     const limit = Number(prompt("Límite mensual (€)", String(space.limit)));
     if (!name.trim() || !Number.isFinite(limit) || limit <= 0) return;
-    spaces.saveBudget({ name: name.trim(), category: space.category, limit, icon: space.icon, color: space.color }, space.id);
+    spaces.saveBudget({ name: name.trim(), categoryName: space.categoryName, category: space.category, limit, icon: space.icon, color: space.color }, space.id);
   }
 
   function editGoal(space: GoalSpace) {
@@ -66,13 +78,14 @@ export function Spaces({ finance, notes, spaces, selectedMonth, onMonthChange }:
     if (name === null) return;
     const target = Number(prompt("Importe objetivo (€)", String(space.target)));
     if (!name.trim() || !Number.isFinite(target) || target <= 0) return;
-    spaces.saveGoal({ name: name.trim(), target, icon: space.icon, color: space.color }, space.id);
+    spaces.saveGoal({ name: name.trim(), categoryName: space.categoryName, target, icon: space.icon, color: space.color }, space.id);
   }
 
   const BudgetForm = () => (
     <Card><h3 className="font-black">Nuevo presupuesto</h3><form className="mt-3 grid gap-3" onSubmit={submitBudget}>
       <input className="input" name="name" placeholder="Ej. Supermercado" required />
-      <div className="grid grid-cols-2 gap-2"><select className="input" name="category">{movementCategories.map((category) => <option key={category}>{category}</option>)}</select><input className="input" name="limit" type="number" min="0.01" step="0.01" placeholder="Límite mensual" required /></div>
+      <input className="input" name="categoryName" list="budget-space-categories" placeholder="Categoría nueva o existente" required /><datalist id="budget-space-categories">{[...new Set([...spaces.budgetCategories, ...movementCategories])].map((category) => <option key={category} value={category} />)}</datalist>
+      <div><label className="mb-1 block text-xs font-bold text-slate-400" htmlFor="budget-spending-category">Asociar gastos registrados a</label><div className="grid grid-cols-2 gap-2"><select className="input" id="budget-spending-category" name="spendingCategory">{movementCategories.map((category) => <option key={category}>{category}</option>)}</select><input className="input" name="limit" type="number" min="0.01" step="0.01" placeholder="Límite mensual" required /></div></div>
       <div className="flex gap-2"><button className="btn-primary flex-1">Guardar</button><button className="btn-secondary" type="button" onClick={() => setShowBudget(false)}>Cancelar</button></div>
     </form></Card>
   );
@@ -80,6 +93,7 @@ export function Spaces({ finance, notes, spaces, selectedMonth, onMonthChange }:
   const GoalForm = () => (
     <Card><h3 className="font-black">Nuevo objetivo</h3><form className="mt-3 grid gap-3" onSubmit={submitGoal}>
       <input className="input" name="name" placeholder="Ej. Viaje de verano" required />
+      <input className="input" name="categoryName" list="goal-space-categories" placeholder="Categoría del objetivo (opcional)" /><datalist id="goal-space-categories">{spaces.goalCategories.map((category) => <option key={category} value={category} />)}</datalist>
       <input className="input" name="target" type="number" min="0.01" step="0.01" placeholder="Importe objetivo" required />
       <div className="flex gap-2"><button className="btn-primary flex-1">Crear objetivo</button><button className="btn-secondary" type="button" onClick={() => setShowGoal(false)}>Cancelar</button></div>
     </form></Card>
@@ -94,7 +108,7 @@ export function Spaces({ finance, notes, spaces, selectedMonth, onMonthChange }:
     {(tab === "resumen" || tab === "presupuestos") && <section className="space-y-3">
       <div className="flex items-center justify-between"><div><h2 className="text-lg font-black">Presupuestos</h2><p className="text-sm text-slate-400">Control mensual por categoría</p></div><button className="btn-primary" onClick={() => setShowBudget(!showBudget)} type="button">+ Crear</button></div>
       {showBudget && <BudgetForm />}
-      {activeBudgets.length ? activeBudgets.map((space) => { const spent = spendingByCategory.get(space.category) ?? 0; const pct = Math.min(100, spent / space.limit * 100); return <Card key={space.id}>
+      {activeBudgets.length ? activeBudgets.map((space) => { const spent = spendingByBudget.get(space.id) ?? 0; const pct = Math.min(100, spent / space.limit * 100); return <Card key={space.id}>
         <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl text-xl" style={{ background: `${space.color}22`, color: space.color }}>{space.icon}</span><div className="min-w-0 flex-1"><div className="flex justify-between gap-3"><p className="truncate font-black">{space.name}</p><p className="text-sm font-bold">{currency(spent)} <span className="text-slate-500">/ {currency(space.limit)}</span></p></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-[#30383b]"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct >= 90 ? "#ff8795" : space.color }} /></div><p className={`mt-1 text-xs ${pct >= 90 ? "text-rose-400" : "text-slate-400"}`}>{currency(Math.max(0, space.limit - spent))} restante · {Math.round(pct)}%</p></div></div>
         <div className="mt-3 flex justify-end gap-2"><button className="btn-secondary !min-h-9" onClick={() => editBudget(space)} type="button">Editar</button><button className="btn-secondary !min-h-9" onClick={() => spaces.archive("budget", space.id)} type="button">Archivar</button><button className="btn-danger !min-h-9" onClick={() => { if (confirm("¿Eliminar este presupuesto?")) spaces.remove("budget", space.id); }} type="button">Eliminar</button></div>
       </Card>; }) : <EmptyState title="Sin presupuestos" body="Crea un límite mensual para una categoría. No modificará tus movimientos." />}
@@ -109,6 +123,6 @@ export function Spaces({ finance, notes, spaces, selectedMonth, onMonthChange }:
     {tab === "fijos" && <FixedExpenses finance={finance} />}
     {tab === "mercado" && <Market selectedMonth={selectedMonth} onMonthChange={onMonthChange} finance={finance} />}
     {tab === "notas" && <Notes notes={notes} />}
-    {tab === "movimientos" && <Movements selectedMonth={selectedMonth} onMonthChange={onMonthChange} finance={finance} />}
+    {tab === "movimientos" && <Movements selectedMonth={selectedMonth} onMonthChange={onMonthChange} finance={finance} customCategories={[...spaces.budgetCategories, ...spaces.movementCategories]} budgetSpaces={activeBudgets} onCreateCategory={spaces.addMovementCategory} />}
   </div>;
 }
