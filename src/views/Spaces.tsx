@@ -105,7 +105,7 @@ export function Spaces({ finance, notes, spaces, selectedMonth, onMonthChange }:
       {tabs.map((item) => <button key={item.id} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold ${tab === item.id ? "bg-[#b7f34a] text-[#18210d]" : "border border-[#30383b] bg-[#1a2228] text-slate-300"}`} type="button" onClick={() => setTab(item.id)}>{item.label}</button>)}
     </div>
 
-    {(tab === "resumen" || tab === "presupuestos") && <section className="space-y-3">
+    {(tab === "resumen" || tab === "presupuestos") && <section className="page-transition space-y-3">
       <div className="flex items-center justify-between"><div><h2 className="text-lg font-black">Presupuestos</h2><p className="text-sm text-slate-400">Control mensual por categoría</p></div><button className="btn-primary" onClick={() => setShowBudget(!showBudget)} type="button">+ Crear</button></div>
       {showBudget && <BudgetForm />}
       {activeBudgets.length ? activeBudgets.map((space) => { const spent = spendingByBudget.get(space.id) ?? 0; const pct = Math.min(100, spent / space.limit * 100); return <Card key={space.id}>
@@ -114,15 +114,15 @@ export function Spaces({ finance, notes, spaces, selectedMonth, onMonthChange }:
       </Card>; }) : <EmptyState title="Sin presupuestos" body="Crea un límite mensual para una categoría. No modificará tus movimientos." />}
     </section>}
 
-    {(tab === "resumen" || tab === "objetivos") && <section className="space-y-3">
+    {(tab === "resumen" || tab === "objetivos") && <section className="page-transition space-y-3">
       <div className="flex items-center justify-between"><div><h2 className="text-lg font-black">Objetivos</h2><p className="text-sm text-slate-400">Ahorros separados de tus gastos</p></div><button className="btn-primary" onClick={() => setShowGoal(!showGoal)} type="button">+ Crear</button></div>
       {showGoal && <GoalForm />}
       {activeGoals.length ? activeGoals.map((goal) => { const pct = Math.min(100, goal.saved / goal.target * 100); return <Card key={goal.id}><div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl text-xl" style={{ background: `${goal.color}22`, color: goal.color }}>{goal.icon}</span><div className="min-w-0 flex-1"><div className="flex justify-between gap-3"><p className="truncate font-black">{goal.name}</p><p className="text-sm font-bold">{Math.round(pct)}%</p></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-[#30383b]"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: goal.color }} /></div><p className="mt-1 text-xs text-slate-400">{currency(goal.saved)} de {currency(goal.target)}</p></div></div><div className="mt-3 flex flex-wrap justify-end gap-2"><button className="btn-primary !min-h-9" type="button" onClick={() => { const amount = Number(prompt("Aportación al objetivo (€)")); if (Number.isFinite(amount) && amount > 0) spaces.contribute(goal.id, amount); }}>+ Aportar</button><button className="btn-secondary !min-h-9" type="button" onClick={() => editGoal(goal)}>Editar</button><button className="btn-secondary !min-h-9" type="button" onClick={() => spaces.archive("goal", goal.id)}>Archivar</button><button className="btn-danger !min-h-9" type="button" onClick={() => { if (confirm("¿Eliminar este objetivo?")) spaces.remove("goal", goal.id); }}>Eliminar</button></div>{goal.contributions?.length ? <div className="mt-3 border-t border-[#34434c] pt-3"><p className="mb-2 text-xs font-bold uppercase text-slate-400">Aportaciones recientes</p><div className="flex flex-wrap gap-2">{goal.contributions.slice(-3).reverse().map((entry, index) => <span key={`${entry.date}-${index}`} className="rounded-lg bg-[#26343c] px-2.5 py-1.5 text-xs font-semibold text-slate-300">+{currency(entry.amount)} · {new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short" }).format(new Date(entry.date))}</span>)}</div></div> : null}<p className="mt-2 text-xs text-slate-500">Las aportaciones se guardan como ahorro y no se cuentan como gasto.</p></Card>; }) : <EmptyState title="Sin objetivos" body="Crea una meta y registra aportaciones." />}
     </section>}
 
-    {tab === "fijos" && <FixedExpenses finance={finance} />}
-    {tab === "mercado" && <Market selectedMonth={selectedMonth} onMonthChange={onMonthChange} finance={finance} />}
-    {tab === "notas" && <Notes notes={notes} />}
-    {tab === "movimientos" && <Movements selectedMonth={selectedMonth} onMonthChange={onMonthChange} finance={finance} customCategories={[...spaces.budgetCategories, ...spaces.movementCategories]} budgetSpaces={activeBudgets} onCreateCategory={spaces.addMovementCategory} />}
+    {tab === "fijos" && <div className="page-transition"><FixedExpenses finance={finance} /></div>}
+    {tab === "mercado" && <div className="page-transition"><Market selectedMonth={selectedMonth} onMonthChange={onMonthChange} finance={finance} /></div>}
+    {tab === "notas" && <div className="page-transition"><Notes notes={notes} /></div>}
+    {tab === "movimientos" && <div className="page-transition"><Movements selectedMonth={selectedMonth} onMonthChange={onMonthChange} finance={finance} customCategories={[...spaces.budgetCategories, ...spaces.movementCategories]} budgetSpaces={activeBudgets} onCreateCategory={spaces.addMovementCategory} /></div>}
   </div>;
 }

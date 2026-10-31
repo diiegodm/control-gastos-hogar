@@ -84,12 +84,14 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 pb-28 pt-5 md:pb-10 md:pt-24">
-        {section === "dashboard" ? (
-          <Dashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
-        ) : null}
-        {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
-        {section === "analysis" ? <Analysis finance={finance} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
-        {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void finance.backup()} onImport={() => importRef.current?.click()} /> : null}
+        <div key={section} className="page-transition">
+          {section === "dashboard" ? (
+            <Dashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
+          ) : null}
+          {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
+          {section === "analysis" ? <Analysis finance={finance} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
+          {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void finance.backup()} onImport={() => importRef.current?.click()} /> : null}
+        </div>
       </main>
 
       <BottomNav active={section} onChange={setSection} onAdd={() => setShowQuickMovement(true)} />

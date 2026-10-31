@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { formatLongDate, todayISO } from "../lib/date";
 import { currency, numberValue } from "../lib/money";
@@ -29,6 +29,7 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
   const [selected, setSelected] = useState<(FixedExpense & { dueDateForSelectedMonth: string; daysRemaining: number; alert: "green" | "yellow" | "red" }) | null>(null);
   const [mode, setMode] = useState<ModalMode | null>(null);
   const [error, setError] = useState("");
+  const modalRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!mode) return;
@@ -39,19 +40,25 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    const syncViewport = () => {
+    const syncViewport = (revealFocusedField = false) => {
       root.style.setProperty("--modal-vh", `${viewport?.height ?? window.innerHeight}px`);
       root.style.setProperty("--modal-top", `${viewport?.offsetTop ?? 0}px`);
+      const focused = document.activeElement;
+      if (revealFocusedField && focused instanceof HTMLElement && modalRef.current?.contains(focused)) {
+        window.setTimeout(() => focused.scrollIntoView({ block: "center", behavior: "smooth" }), 80);
+      }
     };
     syncViewport();
-    viewport?.addEventListener("resize", syncViewport);
-    viewport?.addEventListener("scroll", syncViewport);
-    window.addEventListener("resize", syncViewport);
+    const updateViewport = () => syncViewport();
+    const revealFocusedField = () => syncViewport(true);
+    viewport?.addEventListener("resize", revealFocusedField);
+    viewport?.addEventListener("scroll", updateViewport);
+    window.addEventListener("resize", revealFocusedField);
 
     return () => {
-      viewport?.removeEventListener("resize", syncViewport);
-      viewport?.removeEventListener("scroll", syncViewport);
-      window.removeEventListener("resize", syncViewport);
+      viewport?.removeEventListener("resize", revealFocusedField);
+      viewport?.removeEventListener("scroll", updateViewport);
+      window.removeEventListener("resize", revealFocusedField);
       document.body.style.overflow = previousOverflow;
       if (previousHeight) root.style.setProperty("--modal-vh", previousHeight);
       else root.style.removeProperty("--modal-vh");
@@ -148,7 +155,7 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
 
       {mode ? (
         <div className="fixed inset-x-0 z-50 flex items-end justify-center overflow-hidden bg-black/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm sm:items-center" style={{ top: "var(--modal-top, 0px)", height: "var(--modal-vh, 100dvh)" }} onClick={() => setMode(null)}>
-          <section className="min-w-0 w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-t-3xl border border-[#3b4a52] bg-[#202d36] p-5 shadow-2xl sm:rounded-3xl" style={{ maxHeight: "calc(var(--modal-vh, 100dvh) - var(--modal-top, 0px) - env(safe-area-inset-top) - 0.75rem)", WebkitOverflowScrolling: "touch" }} onClick={(event) => event.stopPropagation()}>
+          <section ref={modalRef} data-fixed-modal-scroll className="min-w-0 w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-t-3xl border border-[#3b4a52] bg-[#202d36] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-3xl" style={{ maxHeight: "calc(var(--modal-vh, 100dvh) - var(--modal-top, 0px) - env(safe-area-inset-top) - 0.75rem)", WebkitOverflowScrolling: "touch" }} onFocusCapture={(event) => { const target = event.target; window.setTimeout(() => { if (target instanceof HTMLElement) target.scrollIntoView({ block: "center", behavior: "smooth" }); }, 350); }} onClick={(event) => event.stopPropagation()}>
             {mode === "details" && selected ? (
               <>
                 <div className="flex items-start gap-3">
