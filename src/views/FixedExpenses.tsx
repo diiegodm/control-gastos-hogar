@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { EmptyState } from "../components/EmptyState";
 import { formatLongDate, todayISO } from "../lib/date";
 import { currency, numberValue } from "../lib/money";
@@ -53,7 +54,6 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
     const root = document.documentElement;
     const viewport = window.visualViewport;
     const previousHeight = root.style.getPropertyValue("--modal-vh");
-    const previousTop = root.style.getPropertyValue("--modal-top");
     const previousOverflow = document.body.style.overflow;
     const previousModalAttribute = document.body.getAttribute("data-fixed-modal");
     const initialViewportHeight = viewport?.height ?? window.innerHeight;
@@ -63,7 +63,6 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
     const syncViewport = (revealFocusedField = false) => {
       const height = viewport?.height ?? window.innerHeight;
       root.style.setProperty("--modal-vh", `${height}px`);
-      root.style.setProperty("--modal-top", `${viewport?.offsetTop ?? 0}px`);
       setKeyboardOpen(height < initialViewportHeight - 100);
       const focused = document.activeElement;
       if (revealFocusedField && focused instanceof HTMLElement && modalRef.current?.contains(focused)) {
@@ -87,8 +86,6 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
       setKeyboardOpen(false);
       if (previousHeight) root.style.setProperty("--modal-vh", previousHeight);
       else root.style.removeProperty("--modal-vh");
-      if (previousTop) root.style.setProperty("--modal-top", previousTop);
-      else root.style.removeProperty("--modal-top");
     };
   }, [mode]);
 
@@ -178,8 +175,8 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
         )) : <EmptyState title="Aún no tienes cargos fijos" body="Crea cualquier cargo: cuota de estudios, préstamo, gimnasio, alquiler o suscripción." />}
       </div>
 
-      {mode ? (
-        <div className={`fixed inset-x-0 z-50 flex justify-center overflow-hidden bg-black/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm ${keyboardOpen ? "items-start" : "items-center"}`} style={{ top: "var(--modal-top, 0px)", height: "var(--modal-vh, 100dvh)" }} onClick={() => setMode(null)}>
+      {mode ? createPortal(
+        <div className={`fixed inset-0 z-50 flex justify-center overflow-hidden bg-black/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm ${keyboardOpen ? "items-start" : "items-center"}`} style={{ height: "var(--modal-vh, 100dvh)" }} onClick={() => setMode(null)}>
           <section ref={modalRef} data-fixed-modal-scroll className="min-w-0 w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-3xl border border-[#3b4a52] bg-[#202d36] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl" style={{ maxHeight: "calc(var(--modal-vh, 100dvh) - env(safe-area-inset-top) - 1.5rem)", WebkitOverflowScrolling: "touch" }} onFocusCapture={(event) => revealField(event.target)} onClick={(event) => event.stopPropagation()}>
             {mode === "details" && selected ? (
               <>
@@ -208,7 +205,8 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
               </>
             )}
           </section>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );
