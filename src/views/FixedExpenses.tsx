@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { formatLongDate, todayISO } from "../lib/date";
 import { currency, numberValue } from "../lib/money";
@@ -29,6 +29,36 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
   const [selected, setSelected] = useState<(FixedExpense & { dueDateForSelectedMonth: string; daysRemaining: number; alert: "green" | "yellow" | "red" }) | null>(null);
   const [mode, setMode] = useState<ModalMode | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!mode) return;
+    const root = document.documentElement;
+    const viewport = window.visualViewport;
+    const previousHeight = root.style.getPropertyValue("--modal-vh");
+    const previousTop = root.style.getPropertyValue("--modal-top");
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const syncViewport = () => {
+      root.style.setProperty("--modal-vh", `${viewport?.height ?? window.innerHeight}px`);
+      root.style.setProperty("--modal-top", `${viewport?.offsetTop ?? 0}px`);
+    };
+    syncViewport();
+    viewport?.addEventListener("resize", syncViewport);
+    viewport?.addEventListener("scroll", syncViewport);
+    window.addEventListener("resize", syncViewport);
+
+    return () => {
+      viewport?.removeEventListener("resize", syncViewport);
+      viewport?.removeEventListener("scroll", syncViewport);
+      window.removeEventListener("resize", syncViewport);
+      document.body.style.overflow = previousOverflow;
+      if (previousHeight) root.style.setProperty("--modal-vh", previousHeight);
+      else root.style.removeProperty("--modal-vh");
+      if (previousTop) root.style.setProperty("--modal-top", previousTop);
+      else root.style.removeProperty("--modal-top");
+    };
+  }, [mode]);
 
   function openCreate() {
     setSelected(null);
@@ -117,8 +147,8 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
       </div>
 
       {mode ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-3 backdrop-blur-sm sm:items-center" onClick={() => setMode(null)}>
-          <section className="w-full max-w-lg rounded-t-3xl border border-[#3b4a52] bg-[#202d36] p-5 shadow-2xl sm:rounded-3xl" onClick={(event) => event.stopPropagation()}>
+        <div className="fixed inset-x-0 z-50 flex items-end justify-center overflow-hidden bg-black/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm sm:items-center" style={{ top: "var(--modal-top, 0px)", height: "var(--modal-vh, 100dvh)" }} onClick={() => setMode(null)}>
+          <section className="min-w-0 w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-t-3xl border border-[#3b4a52] bg-[#202d36] p-5 shadow-2xl sm:rounded-3xl" style={{ maxHeight: "calc(var(--modal-vh, 100dvh) - var(--modal-top, 0px) - env(safe-area-inset-top) - 0.75rem)", WebkitOverflowScrolling: "touch" }} onClick={(event) => event.stopPropagation()}>
             {mode === "details" && selected ? (
               <>
                 <div className="flex items-start gap-3">
@@ -133,12 +163,12 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
               <>
                 <div className="mb-4 flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-[#b7f34a]">Espacios · Recurrentes</p><h2 className="mt-1 text-xl font-black">{mode === "edit" ? "Editar cargo fijo" : "Nuevo cargo fijo"}</h2><p className="mt-1 text-sm text-slate-400">El nombre es libre; puedes escribir cualquier gasto recurrente.</p></div><button className="btn-secondary !min-h-9 !px-3" type="button" onClick={() => setMode(mode === "edit" ? "details" : null)} aria-label="Cerrar">×</button></div>
                 <form className="space-y-3" onSubmit={(event) => void submit(event)}>
-                  <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Nombre del cargo</span><input className="input" name="concept" placeholder="Ej. Cuota fija de estudios" defaultValue={formExpense?.concept ?? ""} autoFocus required /></label>
+                  <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Nombre del cargo</span><input className="input min-w-0 max-w-full" name="concept" placeholder="Ej. Cuota fija de estudios" defaultValue={formExpense?.concept ?? ""} required /></label>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Importe mensual</span><input className="input" name="amount" type="number" step="0.01" min="0.01" inputMode="decimal" placeholder="0,00 €" defaultValue={formExpense?.amount ?? ""} required /></label>
                     <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Día de pago</span><input className="input" name="payDay" type="number" min="1" max="31" placeholder="1-31" defaultValue={formExpense?.payDay ?? ""} required /></label>
                   </div>
-                  <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Próximo vencimiento</span><input className="input" name="dueDate" type="date" defaultValue={formExpense?.dueDate ?? todayISO()} required /></label>
+                  <label className="block min-w-0"><span className="mb-1 block text-xs font-bold text-slate-400">Próximo vencimiento</span><input className="input block min-w-0 max-w-full appearance-none" style={{ width: "100%" }} name="dueDate" type="date" defaultValue={formExpense?.dueDate ?? todayISO()} required /></label>
                   <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Estado</span><select className="input" name="status" defaultValue={formExpense?.status ?? "Pendiente"}><option>Pendiente</option><option>Pagado</option></select></label>
                   {error ? <p role="alert" className="rounded-xl bg-[#351f25] p-3 text-sm font-semibold text-[#ff9aa5]">{error}</p> : null}
                   <div className="grid grid-cols-2 gap-2"><button className="btn-secondary" type="button" onClick={() => setMode(mode === "edit" ? "details" : null)}>Cancelar</button><button className="btn-primary" type="submit">{mode === "edit" ? "Guardar cambios" : "Crear cargo"}</button></div>

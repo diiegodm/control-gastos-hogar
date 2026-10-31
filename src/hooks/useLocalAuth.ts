@@ -53,5 +53,12 @@ export function useLocalAuth() {
     setUnlocked(false);
   }
 
-  return { ready, needsSetup: !credentials, unlocked, name: credentials?.name ?? "Mi hogar", createPin, unlock, lock };
+  function resetAccess() {
+    localStorage.removeItem(CREDENTIALS_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
+    setCredentials(null);
+    setUnlocked(false);
+  }
+
+  return { ready, needsSetup: !credentials, unlocked, name: credentials?.name ?? "Mi hogar", createPin, unlock, lock, resetAccess };
 }

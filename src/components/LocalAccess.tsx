@@ -32,6 +32,11 @@ export function LocalAccess({ auth }: { auth: Auth }) {
     }
   }
 
+  function recoverAccess() {
+    const confirmed = confirm("¿Olvidaste el PIN? Puedes crear uno nuevo. Tus finanzas guardadas en este dispositivo no se borrarán, pero cualquiera con acceso físico al dispositivo podrá restablecer el PIN.");
+    if (confirmed) auth.resetAccess();
+  }
+
   return (
     <main className="flex min-h-dvh items-center justify-center bg-[#080b0f] px-5 py-10 text-slate-100">
       <div className="w-full max-w-sm">
@@ -87,6 +92,8 @@ export function LocalAccess({ auth }: { auth: Auth }) {
             {busy ? "Un momento..." : auth.needsSetup ? "Crear acceso" : "Entrar"}
           </button>
         </form>
+
+        {!auth.needsSetup ? <button className="mt-4 w-full py-2 text-sm font-bold text-[#b7f34a]" type="button" onClick={recoverAccess}>Olvidé mi PIN</button> : null}
 
         <p className="mt-6 text-center text-xs leading-5 text-slate-500">
           Acceso local en este dispositivo. Tus datos siguen guardados aquí.
