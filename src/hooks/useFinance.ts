@@ -152,11 +152,6 @@ export function useFinance(selectedMonth: number) {
     const marketPurchaseTotal = monthPurchases.reduce((sum, item) => sum + item.price, 0);
     const variableExpenses = movementExpenses + marketPurchaseTotal;
     const fixedExpenses = fixedForMonth.reduce((sum, item) => sum + item.amount, 0);
-    const marketTotal =
-      marketPurchaseTotal +
-      monthMovements
-        .filter((item) => item.type === "Gasto" && item.category === "Mercado")
-        .reduce((sum, item) => sum + item.amount, 0);
     const available = income - fixedExpenses - variableExpenses;
     const totalSpent = fixedExpenses + variableExpenses;
 
@@ -189,7 +184,6 @@ export function useFinance(selectedMonth: number) {
       income,
       fixedExpenses,
       variableExpenses,
-      marketTotal,
       available,
       totalSpent,
       categoryData,

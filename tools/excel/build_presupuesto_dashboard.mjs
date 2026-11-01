@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
-const outputDir = "outputs/presupuesto_dashboard";
+const outputDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "outputs", "presupuesto_dashboard");
 const outputPath = `${outputDir}/Presupuesto_Dashboard_Mensual.xlsx`;
 
 await fs.mkdir(outputDir, { recursive: true });
