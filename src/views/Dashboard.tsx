@@ -8,7 +8,7 @@ import {
 import { Card, StatCard } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
-import { formatDate, months } from "../lib/date";
+import { formatDate, monthOption } from "../lib/date";
 import { currency } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { useSpaces } from "../hooks/useSpaces";
@@ -17,8 +17,8 @@ type Finance = ReturnType<typeof useFinance>;
 type SpacesModel = ReturnType<typeof useSpaces>;
 
 type Props = {
-  selectedMonth: number;
-  onMonthChange: (month: number) => void;
+  selectedYm: string;
+  onMonthChange: (ym: string) => void;
   finance: Finance;
   spaces: SpacesModel;
   onOpenSpaces: () => void;
@@ -32,9 +32,9 @@ const alertClasses = {
   red: "bg-rose-50 text-rose-700 ring-rose-100",
 };
 
-export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpenSpaces }: Props) {
+export function Dashboard({ selectedYm, onMonthChange, finance, spaces, onOpenSpaces }: Props) {
   const { dashboard } = finance;
-  const selected = months.find((month) => month.value === selectedMonth);
+  const selected = monthOption(selectedYm);
   const totalExpenses = dashboard.fixedExpenses + dashboard.variableExpenses;
 
   return (
@@ -49,7 +49,7 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
         </span>
       </div>
 
-      <div className="grid grid-cols-[1fr_auto] items-end gap-3">
+      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto]">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Balance disponible</p>
           <p className={`mt-1 truncate text-3xl font-black ${dashboard.available >= 0 ? "text-[#b5ff4a]" : "text-rose-400"}`}>
@@ -57,8 +57,8 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
           </p>
           <p className="mt-1 text-xs text-slate-500">Ingresos menos gastos del mes</p>
         </div>
-        <div className="w-32">
-          <MonthSelector value={selectedMonth} onChange={onMonthChange} />
+        <div className="w-full sm:w-48">
+          <MonthSelector value={selectedYm} onChange={onMonthChange} />
         </div>
       </div>
 
@@ -95,7 +95,7 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-black text-slate-50">Gastos por categoría</h2>
-            <p className="mt-1 text-sm text-slate-400">{selected?.label} · distribución del gasto</p>
+            <p className="mt-1 text-sm text-slate-400">{selected?.label} {selected?.year} · distribución del gasto</p>
           </div>
           <span className="rounded-full bg-[#202624] px-3 py-1.5 text-xs font-bold text-[#b5ff4a]">Mes</span>
         </div>
@@ -145,7 +145,7 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-black text-slate-50">Próximos pagos</h2>
-            <p className="mt-1 text-sm text-slate-400">Gastos fijos de {selected?.label}</p>
+            <p className="mt-1 text-sm text-slate-400">Gastos fijos de {selected?.label} {selected?.year}</p>
           </div>
           <span className="text-sm font-bold text-[#b5ff4a]">{dashboard.upcomingPayments.length}</span>
         </div>

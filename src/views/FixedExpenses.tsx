@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { EmptyState } from "../components/EmptyState";
 import { formatLongDate, todayISO } from "../lib/date";
-import { currency, numberValue } from "../lib/money";
+import { currency, numberValue, parseAmount } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { FixedExpense, FixedStatus } from "../types/finance";
 
@@ -105,10 +105,10 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const concept = String(form.get("concept") || "").trim();
-    const amount = numberValue(form.get("amount"));
+    const amount = parseAmount(String(form.get("amount") ?? ""));
     const payDay = Math.min(31, Math.max(1, numberValue(form.get("payDay"))));
     if (!concept) { setError("Escribe el nombre del cargo fijo."); return; }
-    if (!Number.isFinite(amount) || amount <= 0) { setError("El importe debe ser mayor que cero."); return; }
+    if (amount === null || amount <= 0) { setError("El importe debe ser válido y mayor que cero. Puedes usar coma decimal."); return; }
     const payload = {
       concept,
       amount,
@@ -194,7 +194,7 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
                 <form className="space-y-3" onSubmit={(event) => void submit(event)}>
                   <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Nombre del cargo</span><input className="input min-w-0 max-w-full" name="concept" placeholder="Ej. Cuota fija de estudios" defaultValue={formExpense?.concept ?? ""} required /></label>
                   <div className="grid grid-cols-2 gap-3">
-                    <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Importe mensual</span><input className="input" name="amount" type="number" step="0.01" min="0.01" inputMode="decimal" placeholder="0,00 €" defaultValue={formExpense?.amount ?? ""} required /></label>
+                    <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Importe mensual</span><input className="input" name="amount" type="text" inputMode="decimal" placeholder="0,00 €" defaultValue={formExpense?.amount ?? ""} required /></label>
                     <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Día de pago</span><input className="input" name="payDay" type="number" min="1" max="31" placeholder="1-31" defaultValue={formExpense?.payDay ?? ""} required /></label>
                   </div>
                   <label className="block min-w-0"><span className="mb-1 block text-xs font-bold text-slate-400">Próximo vencimiento</span><input className="input block min-w-0 max-w-full appearance-none" style={{ width: "100%" }} name="dueDate" type="date" defaultValue={formExpense?.dueDate ?? todayISO()} required /></label>

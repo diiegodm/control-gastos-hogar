@@ -22,7 +22,7 @@ import type {
   Movement,
   MovementCategory,
 } from "../types/finance";
-import { movementCategories } from "../types/finance";
+import { monthSummary } from "../lib/summary";
 
 type FinanceState = {
   movements: Movement[];
@@ -57,7 +57,7 @@ function normalizeProductName(name: string): string {
     .replace(/\s+/g, " ");
 }
 
-export function useFinance(selectedMonth: number) {
+export function useFinance(selectedYm: string) {
   const [state, setState] = useState<FinanceState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -108,13 +108,13 @@ export function useFinance(selectedMonth: number) {
   }, []);
 
   const monthMovements = useMemo(
-    () => state.movements.filter((item) => isSameMonth(item.date, selectedMonth)),
-    [state.movements, selectedMonth],
+    () => state.movements.filter((item) => isSameMonth(item.date, selectedYm)),
+    [state.movements, selectedYm],
   );
 
   const monthPurchases = useMemo(
-    () => state.purchases.filter((item) => isSameMonth(item.date, selectedMonth)),
-    [state.purchases, selectedMonth],
+    () => state.purchases.filter((item) => isSameMonth(item.date, selectedYm)),
+    [state.purchases, selectedYm],
   );
 
   const monthPurchaseSummary = useMemo(() => {
@@ -144,7 +144,7 @@ export function useFinance(selectedMonth: number) {
   const fixedForMonth = useMemo(
     () =>
       state.fixedExpenses.map((expense) => {
-        const date = expense.dueDate || dueDateForMonth(expense.payDay, selectedMonth);
+        const date = dueDateForMonth(expense.payDay, selectedYm);
         const days = daysUntil(date);
         return {
           ...expense,
@@ -153,37 +153,13 @@ export function useFinance(selectedMonth: number) {
           alert: statusColorByDays(days),
         };
       }),
-    [state.fixedExpenses, selectedMonth],
+    [state.fixedExpenses, selectedYm],
   );
 
   const dashboard = useMemo(() => {
-    const income = monthMovements
-      .filter((item) => item.type === "Ingreso")
-      .reduce((sum, item) => sum + item.amount, 0);
-    const movementExpenses = monthMovements
-      .filter((item) => item.type === "Gasto")
-      .reduce((sum, item) => sum + item.amount, 0);
-    const marketPurchaseTotal = monthPurchases.reduce((sum, item) => sum + item.price, 0);
-    const variableExpenses = movementExpenses + marketPurchaseTotal;
-    const fixedExpenses = fixedForMonth.reduce((sum, item) => sum + item.amount, 0);
+    const summary = monthSummary(state, selectedYm);
+    const { income, fixedExpenses, variableExpenses, categoryData } = summary;
     const available = income - fixedExpenses - variableExpenses;
-    const totalSpent = fixedExpenses + variableExpenses;
-
-    const categoriesWithActivity = [...new Set([
-      ...movementCategories,
-      ...monthMovements.filter((item) => item.type === "Gasto").map((item) => item.category),
-    ])];
-    const categoryData = categoriesWithActivity
-      .filter((category) => category !== "Ropa")
-      .map((category) => ({
-        category,
-        value:
-          monthMovements
-            .filter((item) => item.type === "Gasto" && item.category === category)
-            .reduce((sum, item) => sum + item.amount, 0) +
-          (category === "Mercado" ? marketPurchaseTotal : 0),
-      }))
-      .filter((item) => item.value > 0);
 
     const upcomingPayments = fixedForMonth
       .filter((item) => item.status === "Pendiente")
@@ -199,7 +175,7 @@ export function useFinance(selectedMonth: number) {
       fixedExpenses,
       variableExpenses,
       available,
-      totalSpent,
+      totalSpent: summary.totalSpent,
       categoryData,
       fixedVsVariable: [
         { name: "Fijos", value: fixedExpenses },
@@ -208,7 +184,9 @@ export function useFinance(selectedMonth: number) {
       upcomingPayments,
       restockProducts,
     };
-  }, [fixedForMonth, monthMovements, monthPurchases, state.products]);
+  }, [fixedForMonth, monthMovements, monthPurchases, selectedYm, state]);
+
+  const summary = useMemo(() => monthSummary(state, selectedYm), [state, selectedYm]);
 
   const createMovement = useCallback(
     async (input: MovementInput) => {
@@ -450,6 +428,7 @@ export function useFinance(selectedMonth: number) {
     monthPurchaseSummary,
     fixedForMonth,
     dashboard,
+    summary,
     createMovement,
     updateMovement,
     removeMovement,

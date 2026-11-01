@@ -10,17 +10,17 @@ import { useNotes } from "./hooks/useNotes";
 import { useSpaces } from "./hooks/useSpaces";
 import { useLocalAuth } from "./hooks/useLocalAuth";
 import { LocalAccess } from "./components/LocalAccess";
-import { months } from "./lib/date";
+import { currentYearMonth, monthOption } from "./lib/date";
 import { parseBackup } from "./lib/storage";
 
-const initialMonth = new Date().getMonth();
+const initialMonth = currentYearMonth();
 
 export default function App() {
   const [section, setSection] = useState<Section>("dashboard");
-  const [selectedMonth, setSelectedMonth] = useState(initialMonth);
+  const [selectedYm, setSelectedYm] = useState(initialMonth);
   const [showQuickMovement, setShowQuickMovement] = useState(false);
   const [importFeedback, setImportFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const finance = useFinance(selectedMonth);
+  const finance = useFinance(selectedYm);
   const notes = useNotes();
   const spaces = useSpaces();
   const auth = useLocalAuth();
@@ -100,7 +100,7 @@ export default function App() {
           </button>
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm">
-              {months[selectedMonth].shortLabel}
+              {monthOption(selectedYm).shortLabel} {monthOption(selectedYm).year}
             </span>
           </div>
           <input
@@ -117,10 +117,10 @@ export default function App() {
         {[spaces.storageError, notes.storageError].filter((message): message is string => Boolean(message)).map((message) => <p key={message} role="alert" className="mb-4 rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm font-semibold text-amber-200">{message}</p>)}
         <div key={section} className="page-transition">
           {section === "dashboard" ? (
-            <Dashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
+            <Dashboard selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
           ) : null}
-          {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
-          {section === "analysis" ? <Analysis finance={finance} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
+          {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
+          {section === "analysis" ? <Analysis finance={finance} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
           {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void exportCurrentBackup()} onImport={() => importRef.current?.click()} importFeedback={importFeedback} /> : null}
         </div>
       </main>
