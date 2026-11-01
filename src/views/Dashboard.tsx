@@ -17,6 +17,7 @@ type Finance = ReturnType<typeof useFinance>;
 type SpacesModel = ReturnType<typeof useSpaces>;
 
 type Props = {
+  name: string;
   selectedYm: string;
   onMonthChange: (ym: string) => void;
   finance: Finance;
@@ -32,16 +33,17 @@ const alertClasses = {
   red: "bg-rose-50 text-rose-700 ring-rose-100",
 };
 
-export function Dashboard({ selectedYm, onMonthChange, finance, spaces, onOpenSpaces }: Props) {
+export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, onOpenSpaces }: Props) {
   const { dashboard } = finance;
   const selected = monthOption(selectedYm);
   const totalExpenses = dashboard.fixedExpenses + dashboard.variableExpenses;
+  const greeting = name.trim() ? `Hola, ${name.trim()} 👋` : "Hola 👋";
 
   return (
     <div className="space-y-5 pb-2">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-slate-400">Hola, Diego 👋</p>
+          <p className="text-sm font-semibold text-slate-400">{greeting}</p>
           <h1 className="mt-1 text-2xl font-black text-slate-50">Tu hogar este mes</h1>
         </div>
         <span className="flex h-11 w-11 items-center justify-center rounded-full border border-[#303638] bg-[#171b1d] text-lg" aria-hidden="true">

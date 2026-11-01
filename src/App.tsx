@@ -117,7 +117,7 @@ export default function App() {
         {[spaces.storageError, notes.storageError].filter((message): message is string => Boolean(message)).map((message) => <p key={message} role="alert" className="mb-4 rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm font-semibold text-amber-200">{message}</p>)}
         <div key={section} className="page-transition">
           {section === "dashboard" ? (
-            <Dashboard selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
+            <Dashboard name={auth.name} selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
           ) : null}
           {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
           {section === "analysis" ? <Analysis finance={finance} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
