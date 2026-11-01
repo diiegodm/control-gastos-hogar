@@ -15,7 +15,7 @@ const items: Array<{ id: Section; label: string; icon: string }> = [
 
 export function BottomNav({ active, onChange, onAdd }: Props) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t px-2 pb-[calc(env(safe-area-inset-bottom)+0.4rem)] pt-2 backdrop-blur-xl md:top-[72px] md:bottom-auto md:border-b md:border-t-0">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t px-2 pb-[calc(env(safe-area-inset-bottom)+0.4rem)] pt-2 backdrop-blur-xl md:inset-x-auto md:bottom-4 md:left-1/2 md:right-auto md:w-[min(40rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-2xl md:border md:px-3 md:pb-2 md:shadow-xl">
       <div className="mx-auto grid max-w-xl grid-cols-5 items-end gap-1">
         {items.slice(0, 2).map((item) => (
           <button key={item.id} type="button" onClick={() => onChange(item.id)} className={`flex min-h-14 flex-col items-center justify-center rounded-xl text-[0.68rem] font-semibold transition ${active === item.id ? "bg-slate-950 text-white shadow-soft" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}>
