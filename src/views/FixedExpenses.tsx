@@ -30,7 +30,6 @@ export function FixedExpenses({ finance, categoryOptions = [] }: { finance: Fina
   const [selected, setSelected] = useState<(FixedExpense & { dueDateForSelectedMonth: string; daysRemaining: number; alert: "green" | "yellow" | "red"; isPaid: boolean }) | null>(null);
   const [mode, setMode] = useState<ModalMode | null>(null);
   const [error, setError] = useState("");
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const modalRef = useRef<HTMLElement | null>(null);
 
   function revealField(target: EventTarget) {
@@ -56,34 +55,28 @@ export function FixedExpenses({ finance, categoryOptions = [] }: { finance: Fina
     const previousHeight = root.style.getPropertyValue("--modal-vh");
     const previousOverflow = document.body.style.overflow;
     const previousModalAttribute = document.body.getAttribute("data-fixed-modal");
-    const initialViewportHeight = viewport?.height ?? window.innerHeight;
     document.body.style.overflow = "hidden";
     document.body.setAttribute("data-fixed-modal", "open");
 
     const syncViewport = (revealFocusedField = false) => {
       const height = viewport?.height ?? window.innerHeight;
       root.style.setProperty("--modal-vh", `${height}px`);
-      setKeyboardOpen(height < initialViewportHeight - 100);
       const focused = document.activeElement;
       if (revealFocusedField && focused instanceof HTMLElement && modalRef.current?.contains(focused)) {
         revealField(focused);
       }
     };
     syncViewport();
-    const updateViewport = () => syncViewport();
     const revealFocusedField = () => syncViewport(true);
     viewport?.addEventListener("resize", revealFocusedField);
-    viewport?.addEventListener("scroll", updateViewport);
     window.addEventListener("resize", revealFocusedField);
 
     return () => {
       viewport?.removeEventListener("resize", revealFocusedField);
-      viewport?.removeEventListener("scroll", updateViewport);
       window.removeEventListener("resize", revealFocusedField);
       document.body.style.overflow = previousOverflow;
       if (previousModalAttribute) document.body.setAttribute("data-fixed-modal", previousModalAttribute);
       else document.body.removeAttribute("data-fixed-modal");
-      setKeyboardOpen(false);
       if (previousHeight) root.style.setProperty("--modal-vh", previousHeight);
       else root.style.removeProperty("--modal-vh");
     };
@@ -178,7 +171,7 @@ export function FixedExpenses({ finance, categoryOptions = [] }: { finance: Fina
       </div>
 
       {mode ? createPortal(
-        <div className={`fixed inset-0 z-50 flex justify-center overflow-hidden bg-black/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-sm ${keyboardOpen ? "items-start" : "items-center"}`} style={{ height: "var(--modal-vh, 100dvh)" }} onClick={() => setMode(null)}>
+        <div className="fixed inset-x-0 top-0 z-50 flex items-start justify-center overflow-hidden bg-black/70 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-sm" style={{ height: "var(--modal-vh, 100dvh)" }} onClick={() => setMode(null)}>
           <section ref={modalRef} data-fixed-modal-scroll className="min-w-0 w-full max-w-lg touch-pan-y overflow-y-auto overscroll-contain rounded-3xl border border-[#3b4a52] bg-[#202d36] p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl" style={{ maxHeight: "calc(var(--modal-vh, 100dvh) - env(safe-area-inset-top) - 1.5rem)", WebkitOverflowScrolling: "touch" }} onFocusCapture={(event) => revealField(event.target)} onClick={(event) => event.stopPropagation()}>
             {mode === "details" && selected ? (
               <>
