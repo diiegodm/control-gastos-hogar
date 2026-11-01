@@ -31,6 +31,8 @@ export type Movement = {
   type: MovementType;
   category: MovementCategory;
   budgetSpaceId?: string;
+  source?: "market";
+  purchaseId?: string;
   description: string;
   amountCents: number;
   createdAt: string;
@@ -40,6 +42,7 @@ export type Movement = {
 export type FixedExpense = {
   id: string;
   concept: string;
+  category?: MovementCategory;
   amountCents: number;
   payDay: number;
   startMonth: string;

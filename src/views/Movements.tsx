@@ -42,6 +42,12 @@ export function Movements({ selectedYm, onMonthChange, finance, customCategories
     });
   }, [categoryFilter, finance.monthMovements, typeFilter]);
 
+  function assignedBudgetName(movement: Movement): string | undefined {
+    if (movement.type !== "Gasto") return undefined;
+    return budgetSpaces.find((space) => space.id === movement.budgetSpaceId)?.name
+      ?? budgetSpaces.find((space) => space.category === movement.category)?.name;
+  }
+
   async function submit(formData: FormData): Promise<boolean> {
     setFormError("");
     const amount = parseAmount(String(formData.get("amount") ?? ""));
@@ -144,6 +150,7 @@ export function Movements({ selectedYm, onMonthChange, finance, customCategories
                   <p className="mt-1 text-sm text-slate-500">
                     {formatLongDate(movement.date)} · {movement.category}
                   </p>
+                  {assignedBudgetName(movement) ? <p className="mt-1 text-xs font-semibold text-slate-400">Presupuesto: {assignedBudgetName(movement)}</p> : null}
                 </div>
                 <p className={`font-black ${movement.type === "Ingreso" ? "text-emerald-600" : "text-slate-950"}`}>
                   {movement.type === "Ingreso" ? "+" : "-"}

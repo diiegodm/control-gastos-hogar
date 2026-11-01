@@ -26,7 +26,7 @@ function conceptIcon(concept: string) {
   return "◉";
 }
 
-export function FixedExpenses({ finance }: { finance: Finance }) {
+export function FixedExpenses({ finance, categoryOptions = [] }: { finance: Finance; categoryOptions?: string[] }) {
   const [selected, setSelected] = useState<(FixedExpense & { dueDateForSelectedMonth: string; daysRemaining: number; alert: "green" | "yellow" | "red"; isPaid: boolean }) | null>(null);
   const [mode, setMode] = useState<ModalMode | null>(null);
   const [error, setError] = useState("");
@@ -116,6 +116,7 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
       amountCents: toCents(amount),
       payDay,
       startMonth,
+      category: String(form.get("category") || "") || undefined,
     };
 
     if (mode === "edit" && selected) await finance.updateFixedExpense(selected.id, payload);
@@ -186,7 +187,7 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
                   <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-400">Cargo recurrente</p><h2 className="mt-0.5 text-xl font-black">{selected.concept}</h2></div>
                   <button className="btn-secondary !min-h-9 !px-3" type="button" onClick={() => setMode(null)} aria-label="Cerrar">×</button>
                 </div>
-                <div className="my-5 rounded-2xl border border-[#35454d] bg-[#19242b] p-4"><p className="text-3xl font-black text-[#b7f34a]">{currency(fromCents(selected.amountCents))}<span className="ml-2 text-sm font-semibold text-slate-400">al mes</span></p><p className="mt-3 text-sm text-slate-300">Próximo vencimiento: {formatLongDate(dueDateForMonth(selected.payDay, finance.selectedYm))}</p><p className="mt-1 text-sm text-slate-400">Día habitual de pago: {selected.payDay}</p><p className="mt-1 text-sm text-slate-400">Desde: {selected.startMonth}</p><p className="mt-1 text-sm text-slate-400">Estado este mes: {selected.isPaid ? "Pagado" : "Pendiente"}</p></div>
+                <div className="my-5 rounded-2xl border border-[#35454d] bg-[#19242b] p-4"><p className="text-3xl font-black text-[#b7f34a]">{currency(fromCents(selected.amountCents))}<span className="ml-2 text-sm font-semibold text-slate-400">al mes</span></p><p className="mt-3 text-sm text-slate-300">Próximo vencimiento: {formatLongDate(dueDateForMonth(selected.payDay, finance.selectedYm))}</p><p className="mt-1 text-sm text-slate-400">Día habitual de pago: {selected.payDay}</p>{selected.category ? <p className="mt-1 text-sm text-slate-400">Categoría de presupuesto: {selected.category}</p> : null}<p className="mt-1 text-sm text-slate-400">Desde: {selected.startMonth}</p><p className="mt-1 text-sm text-slate-400">Estado este mes: {selected.isPaid ? "Pagado" : "Pendiente"}</p></div>
                 <div className="grid grid-cols-2 gap-2"><button className="btn-primary" type="button" onClick={() => { void finance.markFixedPaid(selected.id).then(() => setMode(null)); }}>{selected.isPaid ? "Deshacer pago" : "Marcar pagado"}</button><button className="btn-secondary" type="button" onClick={() => setMode("edit")}>Editar cargo</button><button className="btn-danger col-span-2" type="button" onClick={() => void remove()}>Eliminar</button></div>
               </>
             ) : (
@@ -194,6 +195,7 @@ export function FixedExpenses({ finance }: { finance: Finance }) {
                 <div className="mb-4 flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-[#b7f34a]">Espacios · Recurrentes</p><h2 className="mt-1 text-xl font-black">{mode === "edit" ? "Editar cargo fijo" : "Nuevo cargo fijo"}</h2><p className="mt-1 text-sm text-slate-400">El nombre es libre; puedes escribir cualquier gasto recurrente.</p></div><button className="btn-secondary !min-h-9 !px-3" type="button" onClick={() => setMode(mode === "edit" ? "details" : null)} aria-label="Cerrar">×</button></div>
                 <form className="space-y-3" onSubmit={(event) => void submit(event)}>
                   <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Nombre del cargo</span><input className="input min-w-0 max-w-full" name="concept" placeholder="Ej. Cuota fija de estudios" defaultValue={formExpense?.concept ?? ""} required /></label>
+                  <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Categoría de presupuesto (opcional)</span><select className="input" name="category" defaultValue={formExpense?.category ?? ""}><option value="">Sin categoría</option>{[...new Set([...categoryOptions, ...(formExpense?.category ? [formExpense.category] : [])])].map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Importe mensual</span><input className="input" name="amount" type="text" inputMode="decimal" placeholder="0,00 €" defaultValue={formExpense ? fromCents(formExpense.amountCents) : ""} required /></label>
                     <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Día de pago</span><input className="input" name="payDay" type="number" min="1" max="31" placeholder="1-31" defaultValue={formExpense?.payDay ?? ""} required /></label>

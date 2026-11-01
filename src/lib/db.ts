@@ -166,7 +166,7 @@ function parseBackupV1(backup: Record<string, unknown>): BackupPayload {
     requiredString(item, "category", label);
     requiredString(item, "description", label);
     const amountCents = toCents(finiteNumber(item, "amount", label));
-    optionalString(item, "budgetSpaceId", label);
+    optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label);
     const { amount: _oldAmount, ...rest } = item;
     return { ...rest, amountCents } as unknown as Movement;
   });
@@ -174,7 +174,7 @@ function parseBackupV1(backup: Record<string, unknown>): BackupPayload {
   const fixedPayments: FixedPayment[] = [];
   recordArray(backup.fixedExpenses, "fixedExpenses").forEach((item, index) => {
     const label = `fixedExpenses[${index}]`;
-    requiredString(item, "concept", label);
+    requiredString(item, "concept", label); optionalString(item, "category", label);
     const amountCents = toCents(finiteNumber(item, "amount", label));
     const payDay = finiteNumber(item, "payDay", label, true);
     if (payDay < 1 || payDay > 31) throw new Error(`${label}.payDay debe ser un día entre 1 y 31.`);
@@ -249,12 +249,12 @@ export function parseBackup(raw: unknown): BackupPayload {
     isoDate(item, "date", label);
     if (item.type !== "Ingreso" && item.type !== "Gasto") throw new Error(`${label}.type no es válido.`);
     requiredString(item, "category", label); requiredString(item, "description", label);
-    finiteNumber(item, "amountCents", label, true); optionalString(item, "budgetSpaceId", label);
+    finiteNumber(item, "amountCents", label, true); optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label);
     return item as unknown as Movement;
   });
   const fixedExpenses = recordArray(backup.fixedExpenses, "fixedExpenses").map((item, index) => {
     const label = `fixedExpenses[${index}]`;
-    requiredString(item, "concept", label); finiteNumber(item, "amountCents", label, true);
+    requiredString(item, "concept", label); optionalString(item, "category", label); finiteNumber(item, "amountCents", label, true);
     requiredString(item, "createdAt", label); requiredString(item, "updatedAt", label);
     const payDay = finiteNumber(item, "payDay", label, true);
     if (payDay < 1 || payDay > 31) throw new Error(`${label}.payDay debe ser un día entre 1 y 31.`);
@@ -447,6 +447,52 @@ export async function putItem<K extends StoreName>(storeName: K, item: StoreMap[
   await runTransaction(storeName, "readwrite", (transaction) => { transaction.objectStore(storeName).put(item); });
 }
 
+export async function saveMarketPurchaseBatch(products: MarketProduct[], purchases: MarketPurchase[], movements: Movement[]): Promise<void> {
+  await runTransaction(["products", "purchases", "movements"], "readwrite", (transaction) => {
+    for (const product of products) transaction.objectStore("products").put(product);
+    for (const purchase of purchases) transaction.objectStore("purchases").put(purchase);
+    for (const movement of movements) transaction.objectStore("movements").put(movement);
+  });
+}
+
+export async function migrateLegacyMarketPurchasesOnce(): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(["movements", "purchases", "meta"], "readwrite");
+    const movementStore = transaction.objectStore("movements");
+    const purchaseStore = transaction.objectStore("purchases");
+    const metaStore = transaction.objectStore("meta");
+    const movementsRequest = movementStore.getAll();
+    const purchasesRequest = purchaseStore.getAll();
+    const markerRequest = metaStore.get("marketPurchaseMovementsMigrated");
+    let remaining = 3;
+    let existingMovements: Movement[] = [];
+    let purchases: MarketPurchase[] = [];
+    let marker: MetaRecord | undefined;
+    const prepare = () => {
+      remaining -= 1;
+      if (remaining !== 0 || marker?.value === true) return;
+      const linked = new Set(existingMovements.flatMap((item) => [item.purchaseId, item.id]));
+      for (const purchase of purchases) {
+        const id = `market_${purchase.id}`;
+        if (linked.has(purchase.id) || linked.has(id)) continue;
+        movementStore.put({
+          id, date: purchase.date, type: "Gasto", category: "Mercado", description: `Compra: ${purchase.product}`,
+          amountCents: purchase.totalCents, source: "market", purchaseId: purchase.id,
+          createdAt: purchase.createdAt, updatedAt: purchase.createdAt,
+        } satisfies Movement);
+      }
+      metaStore.put({ key: "marketPurchaseMovementsMigrated", value: true } satisfies MetaRecord);
+    };
+    movementsRequest.onsuccess = () => { existingMovements = movementsRequest.result as Movement[]; prepare(); };
+    purchasesRequest.onsuccess = () => { purchases = purchasesRequest.result as MarketPurchase[]; prepare(); };
+    markerRequest.onsuccess = () => { marker = markerRequest.result as MetaRecord | undefined; prepare(); };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo actualizar el historial de compras."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la actualización del historial de compras."));
+  });
+}
+
 export async function deleteItem(storeName: StoreName, id: string): Promise<void> {
   await runTransaction(storeName, "readwrite", (transaction) => { transaction.objectStore(storeName).delete(id); });
 }
@@ -527,9 +573,21 @@ async function replaceBackupAtomically(backup: BackupPayload): Promise<void> {
     for (const item of backup.fixedPayments) transaction.objectStore("fixedPayments").put(item);
     for (const item of backup.products) transaction.objectStore("products").put(item);
     for (const item of backup.purchases) transaction.objectStore("purchases").put(item);
+    const linkedPurchases = new Set(backup.movements.flatMap((item) => [item.purchaseId, item.id]));
+    const movementStore = transaction.objectStore("movements");
+    for (const purchase of backup.purchases) {
+      const id = `market_${purchase.id}`;
+      if (linkedPurchases.has(purchase.id) || linkedPurchases.has(id)) continue;
+      movementStore.put({
+        id, date: purchase.date, type: "Gasto", category: "Mercado", description: `Compra: ${purchase.product}`,
+        amountCents: purchase.totalCents, source: "market", purchaseId: purchase.id,
+        createdAt: purchase.createdAt, updatedAt: purchase.createdAt,
+      } satisfies Movement);
+    }
     transaction.objectStore("spaces").put({ id: "main", state: backup.spaces } satisfies SpacesRecord);
     for (const note of backup.notes) transaction.objectStore("notes").put(note);
     transaction.objectStore("meta").put({ key: "marketChecklist", value: backup.checklistIds } satisfies MetaRecord);
+    transaction.objectStore("meta").put({ key: "marketPurchaseMovementsMigrated", value: true } satisfies MetaRecord);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo completar la restauración."));
     transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la restauración; los datos anteriores se mantienen."));
