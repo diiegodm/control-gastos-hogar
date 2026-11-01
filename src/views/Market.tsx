@@ -25,7 +25,7 @@ const tabs: Array<{ id: Tab; label: string }> = [
 ];
 
 function suggestedQuantity(product: MarketProduct): number {
-  return Math.max(1, Math.ceil(product.minQty - product.currentQty + 1));
+  return Math.max(0.01, product.minQty - product.currentQty + 1);
 }
 
 function needsRestock(product: MarketProduct): boolean {
@@ -144,12 +144,14 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
   }
 
   async function submitPurchase(product: MarketProduct, formData: FormData) {
-    const quantity = Math.max(1, numberValue(formData.get("quantity")));
+    const quantity = numberValue(formData.get("quantity"));
     const price = parseAmount(String(formData.get("price") ?? ""));
-    if (price === null) { setFormError("Introduce un precio válido para registrar la compra."); return; }
+    if (!Number.isFinite(quantity) || quantity <= 0) { setFormError("La cantidad debe ser mayor que cero."); return; }
+    if (price === null || price <= 0) { setFormError("Introduce un precio válido mayor que cero."); return; }
     setFormError("");
     const priceMode = String(formData.get("priceMode") || "total") as "total" | "unit";
-    await finance.markProductBought(product.id, toCents(price), quantity, priceMode);
+    try { await finance.markProductBought(product.id, toCents(price), quantity, priceMode); }
+    catch (error) { setFormError(error instanceof Error ? error.message : "No se pudo guardar la compra."); return; }
     setCheckedRestockIds((current) => {
       const next = new Set(current);
       next.delete(product.id);
@@ -161,14 +163,16 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
   async function submitFinalPurchase(formData: FormData) {
     const items = checkedProducts.map((product) => ({
       productId: product.id,
-      quantity: Math.max(1, numberValue(formData.get(`quantity-${product.id}`))),
+      quantity: numberValue(formData.get(`quantity-${product.id}`)),
       price: parseAmount(String(formData.get(`price-${product.id}`) ?? "")),
       priceMode: String(formData.get(`priceMode-${product.id}`) || "total") as "total" | "unit",
     }));
-    if (items.some((item) => item.price === null)) { setFormError("Revisa los precios: usa un importe válido, por ejemplo 2,50."); return; }
+    if (items.some((item) => !Number.isFinite(item.quantity) || item.quantity <= 0)) { setFormError("Todas las cantidades deben ser mayores que cero."); return; }
+    if (items.some((item) => item.price === null || item.price <= 0)) { setFormError("Revisa los precios: cada uno debe ser mayor que cero."); return; }
     setFormError("");
 
-    await finance.completeMarketPurchase(items.map((item) => ({ productId: item.productId, quantity: item.quantity, priceCents: toCents(item.price as number), priceMode: item.priceMode })));
+    try { await finance.completeMarketPurchase(items.map((item) => ({ productId: item.productId, quantity: item.quantity, priceCents: toCents(item.price as number), priceMode: item.priceMode }))); }
+    catch (error) { setFormError(error instanceof Error ? error.message : "No se pudieron guardar las compras."); return; }
     setCheckedRestockIds((current) => {
       const next = new Set(current);
       checkedProducts.forEach((product) => next.delete(product.id));
@@ -178,7 +182,9 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
   }
 
   async function submitConsumption(product: MarketProduct, formData: FormData) {
-    const quantity = Math.max(1, Math.floor(numberValue(formData.get("quantity"))));
+    const quantity = numberValue(formData.get("quantity"));
+    if (!Number.isFinite(quantity) || quantity <= 0 || quantity > product.currentQty) { setFormError("Introduce una cantidad positiva que no supere las existencias."); return; }
+    setFormError("");
     await finance.adjustProductQuantity(product.id, -quantity);
     setConsumingId(null);
   }
@@ -223,8 +229,8 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
             ))}
           </select>
           <div className="grid grid-cols-2 gap-3">
-            <input className="input" name="currentQty" type="number" step="1" min="0" placeholder="Cantidad actual" defaultValue={editing?.currentQty ?? ""} required />
-            <input className="input" name="minQty" type="number" step="1" min="0" placeholder="Cantidad mínima" defaultValue={editing?.minQty ?? ""} required />
+            <input className="input" name="currentQty" type="number" step="any" min="0" placeholder="Cantidad actual" defaultValue={editing?.currentQty ?? ""} required />
+            <input className="input" name="minQty" type="number" step="any" min="0" placeholder="Cantidad mínima" defaultValue={editing?.minQty ?? ""} required />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <input className="input" name="lastPrice" type="text" inputMode="decimal" placeholder="Último precio (ej. 2,50)" defaultValue={fromCents(editing?.lastUnitPriceCents ?? 0)} />
@@ -301,18 +307,19 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
                     className="input h-11"
                     name={`quantity-${product.id}`}
                     type="number"
-                    min="1"
-                    step="1"
+                    min="0.01"
+                    step="any"
                     defaultValue={suggested}
                     placeholder="Cantidad"
+                    required
                   />
                   <input
                     className="input h-11"
                     name={`price-${product.id}`}
                     type="text"
                     inputMode="decimal"
-                    defaultValue={fromCents(product.lastUnitPriceCents)}
-                    placeholder="Precio"
+                    defaultValue={product.lastUnitPriceCents > 0 ? fromCents(product.lastUnitPriceCents) : ""}
+                    placeholder="Precio" required
                   />
                   <select className="input h-11" name={`priceMode-${product.id}`} defaultValue="total">
                     <option value="total">Precio total / paquete</option>
@@ -405,8 +412,8 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
               <option value="unit">Precio por unidad</option>
             </select>
             <div className="grid grid-cols-2 gap-2">
-              <input className="input h-11" name="quantity" type="number" min="1" step="1" defaultValue={suggested} placeholder="Cantidad" />
-              <input className="input h-11" name="price" type="text" inputMode="decimal" defaultValue={fromCents(product.lastUnitPriceCents)} placeholder="Precio" />
+              <input className="input h-11" name="quantity" type="number" min="0.01" step="any" defaultValue={suggested} placeholder="Cantidad" required />
+              <input className="input h-11" name="price" type="text" inputMode="decimal" defaultValue={product.lastUnitPriceCents > 0 ? fromCents(product.lastUnitPriceCents) : ""} placeholder="Precio" required />
             </div>
             <p className="text-xs font-semibold text-blue-700">
               Paquete: cantidad 10 y precio 2,50 = total 2,50. Unidad: cantidad 3 y precio 2,00 = total 6,00.
@@ -438,7 +445,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
                   -{quantity}
                 </button>
               ))}
-              <input className="input h-11 px-3" name="quantity" type="number" min="1" step="1" defaultValue={1} />
+              <input className="input h-11 px-3" name="quantity" type="number" min="0.01" max={product.currentQty} step="any" defaultValue={1} required />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button className="btn-primary" type="submit">Aplicar</button>

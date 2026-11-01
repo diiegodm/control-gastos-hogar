@@ -8,7 +8,9 @@ import {
   exportBackup,
   getAll,
   importBackup,
+  migrateLegacyMarketPurchasesOnce,
   putItem,
+  saveMarketPurchaseBatch,
 } from "../lib/db";
 import {
   daysUntil,
@@ -95,6 +97,7 @@ export function useFinance(selectedYm: string) {
         if (typeof navigator !== "undefined") {
           try { await navigator.storage?.persist?.(); } catch { /* Persistence is best-effort. */ }
         }
+        await migrateLegacyMarketPurchasesOnce();
         await refresh();
       } catch (error) {
         if (mounted) setLoadError(error instanceof Error ? error.message : "No se pudieron leer los datos locales.");
@@ -344,9 +347,11 @@ export function useFinance(selectedYm: string) {
     async (id: string, priceCents?: number, quantity = 1, priceMode: "total" | "unit" = "total") => {
       const product = state.products.find((item) => item.id === id);
       if (!product) return;
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("La cantidad debe ser mayor que cero.");
+      if (!Number.isInteger(priceCents) || !priceCents || priceCents <= 0) throw new Error("Introduce un precio válido mayor que cero.");
       const now = new Date().toISOString();
-      const purchasedQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
-      const enteredPrice = typeof priceCents === "number" && priceCents > 0 ? priceCents : product.lastUnitPriceCents;
+      const purchasedQty = quantity;
+      const enteredPrice = priceCents;
       const unitPriceCents = priceMode === "unit" ? enteredPrice : Math.round(enteredPrice / purchasedQty);
       const purchaseTotal = priceMode === "unit" ? Math.round(enteredPrice * purchasedQty) : enteredPrice;
       const updatedProduct: MarketProduct = {
@@ -367,7 +372,12 @@ export function useFinance(selectedYm: string) {
         date: todayISO(),
         createdAt: now,
       };
-      await Promise.all([putItem("products", updatedProduct), putItem("purchases", purchase)]);
+      const movement: Movement = {
+        id: `market_${purchase.id}`, date: purchase.date, type: "Gasto", category: "Mercado",
+        description: `Compra: ${product.product}`, amountCents: purchaseTotal,
+        source: "market", purchaseId: purchase.id, createdAt: now, updatedAt: now,
+      };
+      await saveMarketPurchaseBatch([updatedProduct], [purchase], [movement]);
       await refresh();
     },
     [refresh, state.products],
@@ -378,13 +388,18 @@ export function useFinance(selectedYm: string) {
       const now = new Date().toISOString();
       const productById = new Map(state.products.map((product) => [product.id, product]));
 
+      if (items.some((item) => !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isInteger(item.priceCents) || item.priceCents <= 0)) {
+        throw new Error("Cada producto necesita una cantidad y un precio mayores que cero.");
+      }
+      if (items.some((item) => !productById.has(item.productId))) throw new Error("Uno de los productos ya no existe. Actualiza el inventario e inténtalo otra vez.");
+
       const updates = items
         .map((item) => {
           const product = productById.get(item.productId);
           if (!product) return null;
 
-          const purchasedQty = Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1;
-          const enteredPrice = Number.isFinite(item.priceCents) && item.priceCents > 0 ? item.priceCents : product.lastUnitPriceCents;
+          const purchasedQty = item.quantity;
+          const enteredPrice = item.priceCents;
           const unitPriceCents = item.priceMode === "unit" ? enteredPrice : Math.round(enteredPrice / purchasedQty);
           const purchaseTotal = item.priceMode === "unit" ? Math.round(enteredPrice * purchasedQty) : enteredPrice;
 
@@ -408,14 +423,20 @@ export function useFinance(selectedYm: string) {
             createdAt: now,
           };
 
-          return { updatedProduct, purchase };
+          const movement: Movement = {
+            id: `market_${purchase.id}`, date: purchase.date, type: "Gasto", category: "Mercado",
+            description: `Compra: ${product.product}`, amountCents: purchaseTotal,
+            source: "market", purchaseId: purchase.id, createdAt: now, updatedAt: now,
+          };
+          return { updatedProduct, purchase, movement };
         })
-        .filter((item): item is { updatedProduct: MarketProduct; purchase: MarketPurchase } => item !== null);
+        .filter((item): item is { updatedProduct: MarketProduct; purchase: MarketPurchase; movement: Movement } => item !== null);
 
-      await Promise.all([
-        ...updates.map(({ updatedProduct }) => putItem("products", updatedProduct)),
-        ...updates.map(({ purchase }) => putItem("purchases", purchase)),
-      ]);
+      await saveMarketPurchaseBatch(
+        updates.map(({ updatedProduct }) => updatedProduct),
+        updates.map(({ purchase }) => purchase),
+        updates.map(({ movement }) => movement),
+      );
       await refresh();
     },
     [refresh, state.products],
