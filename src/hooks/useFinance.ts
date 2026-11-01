@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createId,
   deleteItem,
+  downloadBackup,
   exportBackup,
   getAll,
   importBackup,
   putItem,
-  seedIfEmpty,
 } from "../lib/storage";
 import {
   daysUntil,
@@ -16,7 +16,6 @@ import {
   todayISO,
 } from "../lib/date";
 import type {
-  BackupPayload,
   FixedExpense,
   MarketProduct,
   MarketPurchase,
@@ -61,6 +60,8 @@ function normalizeProductName(name: string): string {
 export function useFinance(selectedMonth: number) {
   const [state, setState] = useState<FinanceState>(emptyState);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const refresh = useCallback(async () => {
     const [movements, fixedExpenses, products, purchases] = await Promise.all([
@@ -81,17 +82,30 @@ export function useFinance(selectedMonth: number) {
   useEffect(() => {
     let mounted = true;
     async function boot() {
-      await seedIfEmpty();
-      if (mounted) {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        if (typeof navigator !== "undefined") {
+          try { await navigator.storage?.persist?.(); } catch { /* Persistence is best-effort. */ }
+        }
         await refresh();
-        setLoading(false);
+      } catch (error) {
+        if (mounted) setLoadError(error instanceof Error ? error.message : "No se pudieron leer los datos locales.");
+      } finally {
+        if (mounted) setLoading(false);
       }
     }
     void boot();
     return () => {
       mounted = false;
     };
-  }, [refresh]);
+  }, [refresh, retryCount]);
+
+  const retry = useCallback(() => {
+    setLoadError(null);
+    setLoading(true);
+    setRetryCount((count) => count + 1);
+  }, []);
 
   const monthMovements = useMemo(
     () => state.movements.filter((item) => isSameMonth(item.date, selectedMonth)),
@@ -415,17 +429,11 @@ export function useFinance(selectedMonth: number) {
 
   const backup = useCallback(async () => {
     const payload = await exportBackup();
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `finanzas-hogar-${todayISO()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadBackup(payload);
   }, []);
 
   const restore = useCallback(
-    async (payload: BackupPayload) => {
+    async (payload: unknown) => {
       await importBackup(payload);
       await refresh();
     },
@@ -435,6 +443,8 @@ export function useFinance(selectedMonth: number) {
   return {
     ...state,
     loading,
+    loadError,
+    retry,
     monthMovements,
     monthPurchases,
     monthPurchaseSummary,

@@ -4,29 +4,61 @@ import { movementCategories } from "../types/finance";
 
 const STORAGE_KEY = "finanzas-hogar-spaces-v1";
 const EMPTY: SpacesState = { budgets: [], goals: [], budgetCategories: [], goalCategories: [], movementCategories: [] };
+type LoadResult = { state: SpacesState; canPersist: boolean; error: string | null };
 
 function id() { return `space_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
 
-function load(): SpacesState {
+function load(): LoadResult {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null") as Partial<SpacesState> | null;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { state: EMPTY, canPersist: true, error: null };
+    const parsed = JSON.parse(raw) as Partial<SpacesState> | null;
+    const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+    const stringListValid = (value: unknown) => value === undefined || (Array.isArray(value) && value.every((item) => typeof item === "string"));
+    const budgetListValid = (value: unknown) => Array.isArray(value) && value.every((item) => isRecord(item)
+      && typeof item.id === "string" && typeof item.name === "string" && typeof item.category === "string"
+      && typeof item.limit === "number" && Number.isFinite(item.limit) && typeof item.archived === "boolean");
+    const goalListValid = (value: unknown) => Array.isArray(value) && value.every((item) => isRecord(item)
+      && typeof item.id === "string" && typeof item.name === "string" && typeof item.target === "number"
+      && Number.isFinite(item.target) && typeof item.saved === "number" && Number.isFinite(item.saved)
+      && typeof item.archived === "boolean");
+    if (!parsed || !budgetListValid(parsed.budgets) || !goalListValid(parsed.goals)
+      || !stringListValid(parsed.budgetCategories) || !stringListValid(parsed.goalCategories) || !stringListValid(parsed.movementCategories)) {
+      return { state: EMPTY, canPersist: false, error: "No se pudieron leer tus espacios guardados; no se sobrescribirán." };
+    }
     const budgets = parsed?.budgets ?? [];
     const goals = parsed?.goals ?? [];
-    return {
-      budgets,
-      goals,
+    return { state: {
+      budgets: budgets as BudgetSpace[],
+      goals: goals as GoalSpace[],
       budgetCategories: parsed?.budgetCategories ?? [...new Set(budgets.map((item) => item.categoryName).filter((name): name is string => Boolean(name)))],
       goalCategories: parsed?.goalCategories ?? [...new Set(goals.map((item) => item.categoryName).filter((name): name is string => Boolean(name)))],
       movementCategories: parsed?.movementCategories ?? [],
-    };
-  } catch { return EMPTY; }
+    }, canPersist: true, error: null };
+  } catch { return { state: EMPTY, canPersist: false, error: "No se pudieron leer tus espacios guardados; no se sobrescribirán." }; }
 }
 
 export function useSpaces() {
-  const [state, setState] = useState(load);
-  useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(state)), [state]);
+  const [initial] = useState(load);
+  const [state, setState] = useState(initial.state);
+  const [canPersist, setCanPersist] = useState(initial.canPersist);
+  const [storageError, setStorageError] = useState<string | null>(initial.error);
   useEffect(() => {
-    const reload = () => setState(load());
+    if (!canPersist) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      setStorageError(null);
+    } catch {
+      setStorageError("No se pudieron guardar los espacios en este dispositivo.");
+    }
+  }, [canPersist, state]);
+  useEffect(() => {
+    const reload = () => {
+      const loaded = load();
+      setState(loaded.state);
+      setCanPersist(loaded.canPersist);
+      setStorageError(loaded.error);
+    };
     window.addEventListener("spaces-restored", reload);
     return () => window.removeEventListener("spaces-restored", reload);
   }, []);
@@ -83,5 +115,5 @@ export function useSpaces() {
     setState((current) => ({ ...current, [key]: current[key].filter((space) => space.id !== spaceId) }));
   }
 
-  return { ...state, saveBudget, saveGoal, contribute, archive, remove, addMovementCategory };
+  return { ...state, storageError, saveBudget, saveGoal, contribute, archive, remove, addMovementCategory };
 }

@@ -11,7 +11,7 @@ import { useSpaces } from "./hooks/useSpaces";
 import { useLocalAuth } from "./hooks/useLocalAuth";
 import { LocalAccess } from "./components/LocalAccess";
 import { months } from "./lib/date";
-import type { BackupPayload } from "./types/finance";
+import { parseBackup } from "./lib/storage";
 
 const initialMonth = new Date().getMonth();
 
@@ -19,6 +19,7 @@ export default function App() {
   const [section, setSection] = useState<Section>("dashboard");
   const [selectedMonth, setSelectedMonth] = useState(initialMonth);
   const [showQuickMovement, setShowQuickMovement] = useState(false);
+  const [importFeedback, setImportFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const finance = useFinance(selectedMonth);
   const notes = useNotes();
   const spaces = useSpaces();
@@ -27,16 +28,41 @@ export default function App() {
 
   async function importFile(file: File | undefined) {
     if (!file) return;
+    setImportFeedback(null);
     try {
       const text = await file.text();
-      const payload = JSON.parse(text) as BackupPayload;
-      if (confirm("Esto reemplazará los datos actuales por el respaldo. ¿Continuar?")) {
-        await finance.restore(payload);
+      let raw: unknown;
+      try {
+        raw = JSON.parse(text) as unknown;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "formato JSON no reconocido";
+        throw new Error(`El archivo no contiene un JSON válido: ${detail}`);
       }
-    } catch {
-      alert("No se pudo importar el respaldo. Revisa que sea un JSON válido de esta app.");
+      const payload = parseBackup(raw);
+      if (!confirm("Antes de reemplazar los datos se descargará una copia del estado actual. ¿Continuar con la importación?")) return;
+      await finance.backup();
+      await finance.restore(payload);
+      setImportFeedback({ type: "success", message: "Respaldo importado correctamente. Se descargó una copia de los datos anteriores." });
+    } catch (error) {
+      setImportFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "No se pudo completar la importación.",
+      });
     } finally {
       if (importRef.current) importRef.current.value = "";
+    }
+  }
+
+  async function exportCurrentBackup() {
+    setImportFeedback(null);
+    try {
+      await finance.backup();
+      setImportFeedback({ type: "success", message: "Respaldo descargado correctamente." });
+    } catch (error) {
+      setImportFeedback({
+        type: "error",
+        message: error instanceof Error ? error.message : "No se pudo exportar el respaldo.",
+      });
     }
   }
 
@@ -53,6 +79,10 @@ export default function App() {
         </div>
       </main>
     );
+  }
+
+  if (finance.loadError) {
+    return <main className="flex min-h-dvh items-center justify-center bg-app px-5 text-slate-100"><section className="w-full max-w-md rounded-2xl border border-[#3b4a52] bg-[#202d36] p-5"><h1 className="text-xl font-black">No se pudieron cargar tus datos</h1><p role="alert" className="mt-2 text-sm text-slate-300">{finance.loadError}</p><button className="btn-primary mt-4 w-full" type="button" onClick={finance.retry}>Reintentar</button></section></main>;
   }
 
   return (
@@ -84,13 +114,14 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 pb-28 pt-5 md:pb-10 md:pt-24">
+        {[spaces.storageError, notes.storageError].filter((message): message is string => Boolean(message)).map((message) => <p key={message} role="alert" className="mb-4 rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm font-semibold text-amber-200">{message}</p>)}
         <div key={section} className="page-transition">
           {section === "dashboard" ? (
             <Dashboard selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
           ) : null}
           {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
           {section === "analysis" ? <Analysis finance={finance} selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} /> : null}
-          {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void finance.backup()} onImport={() => importRef.current?.click()} /> : null}
+          {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void exportCurrentBackup()} onImport={() => importRef.current?.click()} importFeedback={importFeedback} /> : null}
         </div>
       </main>
 

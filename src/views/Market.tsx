@@ -24,6 +24,19 @@ const tabs: Array<{ id: Tab; label: string }> = [
 ];
 
 const CHECKLIST_KEY = "finanzas-hogar-market-checklist-v1";
+type ChecklistLoad = { ids: Set<string>; canPersist: boolean; error: string | null };
+
+function loadChecklist(): ChecklistLoad {
+  try {
+    const raw = localStorage.getItem(CHECKLIST_KEY);
+    if (!raw) return { ids: new Set(), canPersist: true, error: null };
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== "string")) throw new Error("invalid checklist");
+    return { ids: new Set(parsed), canPersist: true, error: null };
+  } catch {
+    return { ids: new Set(), canPersist: false, error: "No se pudo leer la lista guardada; no se sobrescribirá." };
+  }
+}
 
 function suggestedQuantity(product: MarketProduct): number {
   return Math.max(1, Math.ceil(product.minQty - product.currentQty + 1));
@@ -42,13 +55,10 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
   const [inventorySearch, setInventorySearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"Todas" | ProductCategory>("Todas");
   const [finalizing, setFinalizing] = useState(false);
-  const [checkedRestockIds, setCheckedRestockIds] = useState<Set<string>>(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem(CHECKLIST_KEY) ?? "[]") as string[]);
-    } catch {
-      return new Set();
-    }
-  });
+  const [initialChecklist] = useState(loadChecklist);
+  const [checkedRestockIds, setCheckedRestockIds] = useState(initialChecklist.ids);
+  const [checklistCanPersist] = useState(initialChecklist.canPersist);
+  const [checklistError, setChecklistError] = useState<string | null>(initialChecklist.error);
 
   const restock = useMemo(
     () => finance.products.filter((product) => needsRestock(product)),
@@ -91,8 +101,14 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
   }, [categoryFilter, finance.products, inventorySearch]);
 
   useEffect(() => {
-    localStorage.setItem(CHECKLIST_KEY, JSON.stringify([...checkedRestockIds]));
-  }, [checkedRestockIds]);
+    if (!checklistCanPersist) return;
+    try {
+      localStorage.setItem(CHECKLIST_KEY, JSON.stringify([...checkedRestockIds]));
+      setChecklistError(null);
+    } catch {
+      setChecklistError("No se pudo guardar la lista de reposición en este dispositivo.");
+    }
+  }, [checklistCanPersist, checkedRestockIds]);
 
   useEffect(() => {
     const validIds = new Set(restock.map((product) => product.id));
@@ -480,6 +496,7 @@ export function Market({ selectedMonth, onMonthChange, finance }: Props) {
           + Producto
         </button>
       </div>
+      {checklistError ? <p role="alert" className="rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm font-semibold text-amber-200">{checklistError}</p> : null}
 
       <MonthSelector value={selectedMonth} onChange={onMonthChange} />
 
