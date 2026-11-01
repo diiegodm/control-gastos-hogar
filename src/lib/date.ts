@@ -17,6 +17,22 @@ export const months: MonthOption[] = [
 
 export const currentYear = new Date().getFullYear();
 
+export function currentYearMonth(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function shiftYearMonth(ym: string, amount: number): string {
+  const [year, month] = ym.split("-").map(Number);
+  const date = new Date(year, month - 1 + amount, 1);
+  return currentYearMonth(date);
+}
+
+export function monthOption(ym: string): MonthOption & { year: number } {
+  const [year, month] = ym.split("-").map(Number);
+  const option = months[month - 1] ?? months[0];
+  return { ...option, year };
+}
+
 export function toISODate(date: Date): string {
   const offset = date.getTimezoneOffset();
   const localDate = new Date(date.getTime() - offset * 60_000);
@@ -27,9 +43,8 @@ export function todayISO(): string {
   return toISODate(new Date());
 }
 
-export function isSameMonth(date: string, month: number, year = currentYear): boolean {
-  const parsed = new Date(`${date}T12:00:00`);
-  return parsed.getMonth() === month && parsed.getFullYear() === year;
+export function isSameMonth(date: string, ym: string): boolean {
+  return date.startsWith(ym);
 }
 
 export function formatDate(date: string): string {
@@ -49,9 +64,10 @@ export function formatLongDate(date: string): string {
   }).format(new Date(`${date}T12:00:00`));
 }
 
-export function dueDateForMonth(payDay: number, month: number, year = currentYear): string {
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  return toISODate(new Date(year, month, Math.min(payDay, lastDay)));
+export function dueDateForMonth(payDay: number, ym: string): string {
+  const [year, month] = ym.split("-").map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  return toISODate(new Date(year, month - 1, Math.min(payDay, lastDay)));
 }
 
 export function daysUntil(date: string): number {

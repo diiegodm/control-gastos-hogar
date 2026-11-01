@@ -1,34 +1,26 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./fixtures/backup-v1.json";
-import { clearStore, getAll, importBackup, parseBackup, putItem } from "../lib/storage";
+import { configureDatabaseNameForTests, exportBackup, getAll, getItem, importBackup, parseBackup, putItem, saveChecklistIds } from "../lib/db";
+import type { Movement } from "../types/finance";
 
 const localValues = new Map<string, string>();
-let failLocalStorageWrite = false;
+let testDbId = 0;
 
 vi.stubGlobal("localStorage", {
   getItem: (key: string) => localValues.get(key) ?? null,
-  setItem: (key: string, value: string) => {
-    if (failLocalStorageWrite) throw new Error("QuotaExceededError");
-    localValues.set(key, value);
-  },
+  setItem: (key: string, value: string) => localValues.set(key, value),
   removeItem: (key: string) => localValues.delete(key),
 });
 vi.stubGlobal("window", { dispatchEvent: vi.fn(), setTimeout });
 
 describe("restauración de respaldos", () => {
-  beforeEach(async () => {
-    failLocalStorageWrite = false;
+  beforeEach(() => {
     localValues.clear();
-    await Promise.all([
-      clearStore("movements"),
-      clearStore("fixedExpenses"),
-      clearStore("products"),
-      clearStore("purchases"),
-    ]);
+    configureDatabaseNameForTests(`restore-test-${++testDbId}`);
   });
 
-  it("valida arrays requeridos, tipos numéricos y fechas antes de restaurar", () => {
+  it("valida listas, importes, fechas y campos v2 antes de restaurar", () => {
     expect(() => parseBackup({ version: 1, fixedExpenses: [], products: [], purchases: [] }))
       .toThrow('El respaldo debe incluir la lista "movements".');
 
@@ -39,55 +31,57 @@ describe("restauración de respaldos", () => {
     const invalidDate = structuredClone(fixture);
     invalidDate.movements[0].date = "2026-02-30";
     expect(() => parseBackup(invalidDate)).toThrow("movements[0].date no es una fecha válida.");
+
+    const v2 = parseBackup(fixture);
+    expect(() => parseBackup({ ...v2, movements: [{ ...v2.movements[0], amountCents: 12.5 }] }))
+      .toThrow("movements[0].amountCents debe ser un entero.");
   });
 
-  it("deja intactos los datos si el respaldo no valida", async () => {
-    const existing = {
-      id: "existing-movement",
-      date: "2026-01-03",
-      type: "Gasto" as const,
-      category: "Otros",
-      description: "No reemplazar",
-      amount: 19,
-      createdAt: "2026-01-03T12:00:00.000Z",
-      updatedAt: "2026-01-03T12:00:00.000Z",
+  it("deja intactos los datos si la validación falla", async () => {
+    const existing: Movement = {
+      id: "existing-movement", date: "2026-01-03", type: "Gasto", category: "Otros",
+      description: "No reemplazar", amountCents: 1900,
+      createdAt: "2026-01-03T12:00:00.000Z", updatedAt: "2026-01-03T12:00:00.000Z",
     };
     await putItem("movements", existing);
-
-    await expect(importBackup({ version: 1, fixedExpenses: [], products: [], purchases: [] }))
-      .rejects.toThrow('El respaldo debe incluir la lista "movements".');
-    await expect(getAll("movements")).resolves.toEqual([existing]);
-
     const invalidAmount = structuredClone(fixture);
     invalidAmount.movements[0].amount = "abc" as unknown as number;
+
     await expect(importBackup(invalidAmount)).rejects.toThrow("movements[0].amount debe ser un número finito.");
     await expect(getAll("movements")).resolves.toEqual([existing]);
   });
 
-  it("reemplaza los cuatro almacenes y los espacios tras una transacción válida", async () => {
+  it("restaura un respaldo v1 convertido a céntimos en todos los stores", async () => {
     await importBackup(fixture);
-    await expect(getAll("movements")).resolves.toEqual(fixture.movements);
-    await expect(getAll("fixedExpenses")).resolves.toEqual(fixture.fixedExpenses);
-    await expect(getAll("products")).resolves.toEqual(fixture.products);
-    await expect(getAll("purchases")).resolves.toEqual(fixture.purchases);
-    expect(JSON.parse(localValues.get("finanzas-hogar-spaces-v1") ?? "null")).toEqual(fixture.spaces);
+    await expect(getAll("movements")).resolves.toMatchObject([{ id: "mov-fixture-1", amountCents: 4250 }]);
+    await expect(getAll("fixedExpenses")).resolves.toMatchObject([{ id: "fixed-fixture-1", amountCents: 3500, startMonth: "2026-01" }]);
+    await expect(getAll("products")).resolves.toMatchObject([{ id: "product-fixture-1", lastUnitPriceCents: 250 }]);
+    await expect(getAll("purchases")).resolves.toMatchObject([{ id: "purchase-fixture-1", totalCents: 250, unitPriceCents: 250 }]);
+    await expect(getItem("spaces", "main")).resolves.toMatchObject({ state: { budgets: [{ limitCents: 15000 }], goals: [{ targetCents: 100000, savedCents: 10000 }] } });
   });
 
-  it("revierte IndexedDB si falla la escritura de spaces", async () => {
-    const existing = {
-      id: "existing-movement",
-      date: "2026-01-03",
-      type: "Gasto" as const,
-      category: "Otros",
-      description: "Conservar si falla localStorage",
-      amount: 19,
-      createdAt: "2026-01-03T12:00:00.000Z",
-      updatedAt: "2026-01-03T12:00:00.000Z",
-    };
-    await putItem("movements", existing);
-    failLocalStorageWrite = true;
+  it("recalcula el precio unitario del inventario desde la última compra por paquete", () => {
+    const packagePurchase = structuredClone(fixture);
+    packagePurchase.products[0].lastPrice = 6;
+    packagePurchase.purchases[0].price = 6;
+    packagePurchase.purchases[0].quantity = 3;
+    packagePurchase.purchases[0].priceMode = "total";
+    expect(parseBackup(packagePurchase).products[0].lastUnitPriceCents).toBe(200);
+  });
 
-    await expect(importBackup(fixture)).rejects.toThrow("Se restauraron los datos anteriores.");
-    await expect(getAll("movements")).resolves.toEqual([existing]);
+  it("exporta e vuelve a importar un respaldo v2 completo", async () => {
+    const v2 = parseBackup(fixture);
+    await importBackup(v2);
+    const note = { id: "note-v2", title: "Nota", body: "Contenido", createdAt: "2026-01-10T00:00:00.000Z", updatedAt: "2026-01-10T00:00:00.000Z" };
+    await putItem("notes", note);
+    await saveChecklistIds(["product-fixture-1"]);
+    const exported = await exportBackup();
+    expect(exported.version).toBe(2);
+    expect(exported.notes).toEqual([note]);
+    expect(exported.checklistIds).toEqual(["product-fixture-1"]);
+    await importBackup(exported);
+    await expect(getAll("movements")).resolves.toMatchObject([{ amountCents: 4250 }]);
+    await expect(getAll("notes")).resolves.toEqual([note]);
+    await expect(getItem("meta", "marketChecklist")).resolves.toMatchObject({ value: ["product-fixture-1"] });
   });
 });

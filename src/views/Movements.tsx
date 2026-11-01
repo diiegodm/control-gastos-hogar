@@ -3,7 +3,7 @@ import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
 import { formatLongDate, todayISO } from "../lib/date";
-import { currency, numberValue } from "../lib/money";
+import { currency, fromCents, parseAmount, toCents } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { Movement, MovementCategory, MovementType } from "../types/finance";
 import { movementCategories } from "../types/finance";
@@ -12,15 +12,15 @@ import type { BudgetSpace } from "../types/spaces";
 type Finance = ReturnType<typeof useFinance>;
 
 type Props = {
-  selectedMonth: number;
-  onMonthChange: (month: number) => void;
+  selectedYm: string;
+  onMonthChange: (ym: string) => void;
   finance: Finance;
   customCategories?: string[];
   budgetSpaces?: BudgetSpace[];
   onCreateCategory: (category: string) => string;
 };
 
-export function Movements({ selectedMonth, onMonthChange, finance, customCategories = [], budgetSpaces = [], onCreateCategory }: Props) {
+export function Movements({ selectedYm, onMonthChange, finance, customCategories = [], budgetSpaces = [], onCreateCategory }: Props) {
   const [editing, setEditing] = useState<Movement | null>(null);
   const [formType, setFormType] = useState<MovementType>("Gasto");
   const [category, setCategory] = useState("Mercado");
@@ -32,6 +32,7 @@ export function Movements({ selectedMonth, onMonthChange, finance, customCategor
   );
   const [categoryFilter, setCategoryFilter] = useState<"Todas" | MovementCategory>("Todas");
   const [typeFilter, setTypeFilter] = useState<"Todos" | MovementType>("Todos");
+  const [formError, setFormError] = useState("");
 
   const visible = useMemo(() => {
     return finance.monthMovements.filter((movement) => {
@@ -41,14 +42,20 @@ export function Movements({ selectedMonth, onMonthChange, finance, customCategor
     });
   }, [categoryFilter, finance.monthMovements, typeFilter]);
 
-  async function submit(formData: FormData) {
+  async function submit(formData: FormData): Promise<boolean> {
+    setFormError("");
+    const amount = parseAmount(String(formData.get("amount") ?? ""));
+    if (amount === null || amount <= 0) {
+      setFormError("Introduce un importe válido mayor que cero. Puedes usar coma decimal.");
+      return false;
+    }
     const payload = {
       date: String(formData.get("date") || todayISO()),
       type: String(formData.get("type") || "Gasto") as MovementType,
       category: category as MovementCategory,
       budgetSpaceId: String(formData.get("budgetSpaceId") || "") || undefined,
       description: String(formData.get("description") || "").trim(),
-      amount: numberValue(formData.get("amount")),
+      amountCents: toCents(amount),
     };
 
     if (editing) {
@@ -59,6 +66,7 @@ export function Movements({ selectedMonth, onMonthChange, finance, customCategor
     setEditing(null);
     setFormType("Gasto");
     setCategory("Mercado");
+    return true;
   }
 
   async function remove(id: string) {
@@ -74,7 +82,7 @@ export function Movements({ selectedMonth, onMonthChange, finance, customCategor
         <p className="mt-1 text-sm text-slate-500">Ingresos y gastos variables en una sola tabla.</p>
       </div>
 
-      <MonthSelector value={selectedMonth} onChange={onMonthChange} label="Mes que estás consultando" />
+      <MonthSelector value={selectedYm} onChange={onMonthChange} label="Mes que estás consultando" />
 
       <Card>
         <h2 className="text-lg font-black text-slate-950">{editing ? "Editar movimiento" : "Nuevo movimiento"}</h2>
@@ -83,8 +91,8 @@ export function Movements({ selectedMonth, onMonthChange, finance, customCategor
           className="mt-4 grid gap-3"
           onSubmit={(event) => {
             event.preventDefault();
-            void submit(new FormData(event.currentTarget));
-            event.currentTarget.reset();
+            const form = event.currentTarget;
+            void submit(new FormData(form)).then((saved) => { if (saved) form.reset(); });
           }}
         >
           <div className="grid grid-cols-2 gap-3">
@@ -97,7 +105,8 @@ export function Movements({ selectedMonth, onMonthChange, finance, customCategor
           <div className="block"><label className="mb-1 block text-xs font-bold text-slate-400" htmlFor="movement-category">Categoría</label><select className="input" id="movement-category" name="category" value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select><button className="mt-2 text-sm font-bold text-[#586b26]" type="button" onClick={() => setShowNewCategory((value) => !value)}>{showNewCategory ? "Cancelar nueva categoría" : "+ Crear categoría"}</button>{showNewCategory ? <div className="mt-2 flex gap-2"><input className="input min-w-0 flex-1" value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="Nombre de la categoría" /><button className="btn-secondary shrink-0" type="button" onClick={() => { const saved = onCreateCategory(newCategory); if (saved) { setCategory(saved); setNewCategory(""); setShowNewCategory(false); } }}>Guardar</button></div> : null}</div>
           {formType === "Gasto" ? <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Presupuesto asociado (opcional)</span><select className="input" name="budgetSpaceId" defaultValue={editing?.budgetSpaceId ?? ""}><option value="">Sin asignar</option>{budgetSpaces.filter((space) => !space.archived).map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label> : null}
           <input className="input" name="description" placeholder="Concepto o descripción" defaultValue={editing?.description ?? ""} required />
-          <input className="input" name="amount" type="number" min="0" step="0.01" placeholder="Monto" defaultValue={editing?.amount ?? ""} required />
+          <input className="input" name="amount" type="text" inputMode="decimal" placeholder="Importe (ej. 12,50)" defaultValue={editing ? fromCents(editing.amountCents) : ""} required />
+          {formError ? <p role="alert" className="text-sm font-semibold text-rose-600">{formError}</p> : null}
           <div className="flex gap-2">
             <button className="btn-primary flex-1" type="submit">
               {editing ? "Guardar cambios" : "Crear movimiento"}
@@ -138,7 +147,7 @@ export function Movements({ selectedMonth, onMonthChange, finance, customCategor
                 </div>
                 <p className={`font-black ${movement.type === "Ingreso" ? "text-emerald-600" : "text-slate-950"}`}>
                   {movement.type === "Ingreso" ? "+" : "-"}
-                  {currency(movement.amount)}
+                  {currency(fromCents(movement.amountCents))}
                 </p>
               </div>
               <div className="mt-3 flex gap-2">

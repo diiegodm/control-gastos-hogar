@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { movementCategories, type MovementCategory, type MovementType } from "../types/finance";
 import { todayISO } from "../lib/date";
-import { numberValue } from "../lib/money";
+import { parseAmount, toCents } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { BudgetSpace } from "../types/spaces";
 
@@ -20,9 +20,9 @@ export function QuickMovement({ finance, customCategories = [], budgetSpaces = [
     event.preventDefault();
     setError("");
     const form = new FormData(event.currentTarget);
-    const amount = numberValue(form.get("amount"));
+    const amount = parseAmount(String(form.get("amount") ?? ""));
     const description = String(form.get("description") || "").trim();
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (amount === null || amount <= 0) {
       setError("Introduce un importe mayor que cero.");
       return;
     }
@@ -34,7 +34,7 @@ export function QuickMovement({ finance, customCategories = [], budgetSpaces = [
         category: category as MovementCategory,
         budgetSpaceId: String(form.get("budgetSpaceId") || "") || undefined,
         description: description || (type === "Ingreso" ? "Ingreso" : "Gasto"),
-        amount,
+        amountCents: toCents(amount),
       });
       onClose();
     } catch {
@@ -49,7 +49,7 @@ export function QuickMovement({ finance, customCategories = [], budgetSpaces = [
       <div className="mb-4 flex items-start justify-between"><div><p className="text-sm font-bold text-[#b7f34a]">Registro rápido</p><h2 className="mt-1 text-xl font-black">Nuevo movimiento</h2></div><button className="btn-secondary !min-h-9 !px-3" onClick={onClose} type="button" aria-label="Cerrar">×</button></div>
       <form className="space-y-3" onSubmit={(event) => void submit(event)}>
         <div className="grid grid-cols-2 rounded-xl bg-[#172129] p-1"><button className={`h-10 rounded-lg font-bold ${type === "Gasto" ? "bg-[#45252b] text-[#ff9aa5]" : "text-slate-400"}`} type="button" onClick={() => setType("Gasto")}>Gasto</button><button className={`h-10 rounded-lg font-bold ${type === "Ingreso" ? "bg-[#27371b] text-[#b7f34a]" : "text-slate-400"}`} type="button" onClick={() => setType("Ingreso")}>Ingreso</button></div>
-        <input className="input !h-16 text-center text-3xl font-black" name="amount" type="number" min="0.01" step="0.01" inputMode="decimal" placeholder="0,00 €" required autoFocus />
+        <input className="input !h-16 text-center text-3xl font-black" name="amount" type="text" inputMode="decimal" placeholder="0,00 €" required autoFocus />
         <div className="block"><label className="mb-1 block text-xs font-bold text-slate-400" htmlFor="quick-movement-category">Categoría</label><select className="input" id="quick-movement-category" name="category" value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select><button className="mt-2 text-sm font-bold text-[#b7f34a]" type="button" onClick={() => setShowNewCategory((value) => !value)}>{showNewCategory ? "Cancelar nueva categoría" : "+ Crear categoría"}</button>{showNewCategory ? <div className="mt-2 flex gap-2"><input className="input min-w-0 flex-1" value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="Nombre de la categoría" /><button className="btn-secondary shrink-0" type="button" onClick={() => { const saved = onCreateCategory(newCategory); if (saved) { setCategory(saved); setNewCategory(""); setShowNewCategory(false); } }}>Guardar</button></div> : null}</div>
         {type === "Gasto" ? <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Presupuesto asociado (opcional)</span><select className="input" name="budgetSpaceId" defaultValue=""><option value="">Sin asignar</option>{budgetSpaces.filter((space) => !space.archived).map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label> : null}
         <input className="input" name="description" placeholder="Concepto o descripción" />
