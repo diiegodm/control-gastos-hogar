@@ -3,7 +3,7 @@ import { Card } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
 import { formatLongDate, todayISO } from "../lib/date";
-import { currency, parseAmount } from "../lib/money";
+import { currency, fromCents, parseAmount, toCents } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { Movement, MovementCategory, MovementType } from "../types/finance";
 import { movementCategories } from "../types/finance";
@@ -55,7 +55,7 @@ export function Movements({ selectedYm, onMonthChange, finance, customCategories
       category: category as MovementCategory,
       budgetSpaceId: String(formData.get("budgetSpaceId") || "") || undefined,
       description: String(formData.get("description") || "").trim(),
-      amount,
+      amountCents: toCents(amount),
     };
 
     if (editing) {
@@ -105,7 +105,7 @@ export function Movements({ selectedYm, onMonthChange, finance, customCategories
           <div className="block"><label className="mb-1 block text-xs font-bold text-slate-400" htmlFor="movement-category">Categoría</label><select className="input" id="movement-category" name="category" value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select><button className="mt-2 text-sm font-bold text-[#586b26]" type="button" onClick={() => setShowNewCategory((value) => !value)}>{showNewCategory ? "Cancelar nueva categoría" : "+ Crear categoría"}</button>{showNewCategory ? <div className="mt-2 flex gap-2"><input className="input min-w-0 flex-1" value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="Nombre de la categoría" /><button className="btn-secondary shrink-0" type="button" onClick={() => { const saved = onCreateCategory(newCategory); if (saved) { setCategory(saved); setNewCategory(""); setShowNewCategory(false); } }}>Guardar</button></div> : null}</div>
           {formType === "Gasto" ? <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Presupuesto asociado (opcional)</span><select className="input" name="budgetSpaceId" defaultValue={editing?.budgetSpaceId ?? ""}><option value="">Sin asignar</option>{budgetSpaces.filter((space) => !space.archived).map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label> : null}
           <input className="input" name="description" placeholder="Concepto o descripción" defaultValue={editing?.description ?? ""} required />
-          <input className="input" name="amount" type="text" inputMode="decimal" placeholder="Importe (ej. 12,50)" defaultValue={editing?.amount ?? ""} required />
+          <input className="input" name="amount" type="text" inputMode="decimal" placeholder="Importe (ej. 12,50)" defaultValue={editing ? fromCents(editing.amountCents) : ""} required />
           {formError ? <p role="alert" className="text-sm font-semibold text-rose-600">{formError}</p> : null}
           <div className="flex gap-2">
             <button className="btn-primary flex-1" type="submit">
@@ -147,7 +147,7 @@ export function Movements({ selectedYm, onMonthChange, finance, customCategories
                 </div>
                 <p className={`font-black ${movement.type === "Ingreso" ? "text-emerald-600" : "text-slate-950"}`}>
                   {movement.type === "Ingreso" ? "+" : "-"}
-                  {currency(movement.amount)}
+                  {currency(fromCents(movement.amountCents))}
                 </p>
               </div>
               <div className="mt-3 flex gap-2">

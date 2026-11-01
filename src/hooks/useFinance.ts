@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createId,
+  deleteFixedExpenseAndPayments,
+  deleteFixedPayment,
   deleteItem,
   downloadBackup,
   exportBackup,
   getAll,
   importBackup,
   putItem,
-} from "../lib/storage";
+} from "../lib/db";
 import {
   daysUntil,
   dueDateForMonth,
@@ -17,6 +19,7 @@ import {
 } from "../lib/date";
 import type {
   FixedExpense,
+  FixedPayment,
   MarketProduct,
   MarketPurchase,
   Movement,
@@ -27,6 +30,7 @@ import { monthSummary } from "../lib/summary";
 type FinanceState = {
   movements: Movement[];
   fixedExpenses: FixedExpense[];
+  fixedPayments: FixedPayment[];
   products: MarketProduct[];
   purchases: MarketPurchase[];
 };
@@ -34,6 +38,7 @@ type FinanceState = {
 const emptyState: FinanceState = {
   movements: [],
   fixedExpenses: [],
+  fixedPayments: [],
   products: [],
   purchases: [],
 };
@@ -43,7 +48,7 @@ type FixedInput = Omit<FixedExpense, "id" | "createdAt" | "updatedAt">;
 type ProductInput = Omit<MarketProduct, "id" | "createdAt" | "updatedAt">;
 type PurchaseInput = {
   productId: string;
-  price: number;
+  priceCents: number;
   quantity: number;
   priceMode: "total" | "unit";
 };
@@ -64,9 +69,10 @@ export function useFinance(selectedYm: string) {
   const [retryCount, setRetryCount] = useState(0);
 
   const refresh = useCallback(async () => {
-    const [movements, fixedExpenses, products, purchases] = await Promise.all([
+    const [movements, fixedExpenses, fixedPayments, products, purchases] = await Promise.all([
       getAll("movements"),
       getAll("fixedExpenses"),
+      getAll("fixedPayments"),
       getAll("products"),
       getAll("purchases"),
     ]);
@@ -74,6 +80,7 @@ export function useFinance(selectedYm: string) {
     setState({
       movements: movements.sort((a, b) => b.date.localeCompare(a.date)),
       fixedExpenses: fixedExpenses.sort((a, b) => a.payDay - b.payDay),
+      fixedPayments,
       products: products.sort((a, b) => a.product.localeCompare(b.product)),
       purchases: purchases.sort((a, b) => b.date.localeCompare(a.date)),
     });
@@ -131,7 +138,7 @@ export function useFinance(selectedYm: string) {
 
       grouped.set(key, {
         ...current,
-        price: current.price + purchase.price,
+        totalCents: current.totalCents + purchase.totalCents,
         count: current.count + 1,
         totalQuantity: current.totalQuantity + quantity,
         date: purchase.date > current.date ? purchase.date : current.date,
@@ -144,16 +151,20 @@ export function useFinance(selectedYm: string) {
   const fixedForMonth = useMemo(
     () =>
       state.fixedExpenses.map((expense) => {
+        if (expense.startMonth > selectedYm || (expense.endMonth && selectedYm > expense.endMonth)) return null;
         const date = dueDateForMonth(expense.payDay, selectedYm);
         const days = daysUntil(date);
+        const payment = state.fixedPayments.find((entry) => entry.expenseId === expense.id && entry.month === selectedYm);
         return {
           ...expense,
           dueDateForSelectedMonth: date,
           daysRemaining: days,
           alert: statusColorByDays(days),
+          isPaid: Boolean(payment),
+          paymentId: payment?.id,
         };
-      }),
-    [state.fixedExpenses, selectedYm],
+      }).filter((expense) => expense !== null),
+    [state.fixedExpenses, state.fixedPayments, selectedYm],
   );
 
   const dashboard = useMemo(() => {
@@ -162,7 +173,7 @@ export function useFinance(selectedYm: string) {
     const available = income - fixedExpenses - variableExpenses;
 
     const upcomingPayments = fixedForMonth
-      .filter((item) => item.status === "Pendiente")
+      .filter((item) => !item.isPaid)
       .sort((a, b) => a.daysRemaining - b.daysRemaining)
       .slice(0, 5);
 
@@ -254,11 +265,28 @@ export function useFinance(selectedYm: string) {
 
   const removeFixedExpense = useCallback(
     async (id: string) => {
-      await deleteItem("fixedExpenses", id);
+      await deleteFixedExpenseAndPayments(id);
       await refresh();
     },
     [refresh],
   );
+
+  const markFixedPaid = useCallback(async (expenseId: string) => {
+    const existing = state.fixedPayments.find((payment) => payment.expenseId === expenseId && payment.month === selectedYm);
+    if (existing) await deleteFixedPayment(expenseId, selectedYm);
+    else {
+      const expense = state.fixedExpenses.find((item) => item.id === expenseId);
+      if (!expense) return;
+      await putItem("fixedPayments", {
+        id: `${expenseId}__${selectedYm}`,
+        expenseId,
+        month: selectedYm,
+        paidAt: todayISO(),
+        amountCents: expense.amountCents,
+      });
+    }
+    await refresh();
+  }, [refresh, selectedYm, state.fixedExpenses, state.fixedPayments]);
 
   const createProduct = useCallback(
     async (input: ProductInput) => {
@@ -313,16 +341,17 @@ export function useFinance(selectedYm: string) {
   );
 
   const markProductBought = useCallback(
-    async (id: string, price?: number, quantity = 1, priceMode: "total" | "unit" = "total") => {
+    async (id: string, priceCents?: number, quantity = 1, priceMode: "total" | "unit" = "total") => {
       const product = state.products.find((item) => item.id === id);
       if (!product) return;
       const now = new Date().toISOString();
       const purchasedQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
-      const enteredPrice = typeof price === "number" && price > 0 ? price : product.lastPrice;
-      const purchaseTotal = priceMode === "unit" ? enteredPrice * purchasedQty : enteredPrice;
+      const enteredPrice = typeof priceCents === "number" && priceCents > 0 ? priceCents : product.lastUnitPriceCents;
+      const unitPriceCents = priceMode === "unit" ? enteredPrice : Math.round(enteredPrice / purchasedQty);
+      const purchaseTotal = priceMode === "unit" ? Math.round(enteredPrice * purchasedQty) : enteredPrice;
       const updatedProduct: MarketProduct = {
         ...product,
-        lastPrice: enteredPrice,
+        lastUnitPriceCents: unitPriceCents,
         lastPurchaseDate: todayISO(),
         currentQty: product.currentQty + purchasedQty,
         updatedAt: now,
@@ -331,9 +360,9 @@ export function useFinance(selectedYm: string) {
         id: createId("buy"),
         productId: product.id,
         product: product.product,
-        price: purchaseTotal,
+        totalCents: purchaseTotal,
         quantity: purchasedQty,
-        unitPrice: priceMode === "unit" ? enteredPrice : undefined,
+        unitPriceCents,
         priceMode,
         date: todayISO(),
         createdAt: now,
@@ -355,12 +384,13 @@ export function useFinance(selectedYm: string) {
           if (!product) return null;
 
           const purchasedQty = Number.isFinite(item.quantity) && item.quantity > 0 ? item.quantity : 1;
-          const enteredPrice = Number.isFinite(item.price) && item.price > 0 ? item.price : product.lastPrice;
-          const purchaseTotal = item.priceMode === "unit" ? enteredPrice * purchasedQty : enteredPrice;
+          const enteredPrice = Number.isFinite(item.priceCents) && item.priceCents > 0 ? item.priceCents : product.lastUnitPriceCents;
+          const unitPriceCents = item.priceMode === "unit" ? enteredPrice : Math.round(enteredPrice / purchasedQty);
+          const purchaseTotal = item.priceMode === "unit" ? Math.round(enteredPrice * purchasedQty) : enteredPrice;
 
           const updatedProduct: MarketProduct = {
             ...product,
-            lastPrice: enteredPrice,
+            lastUnitPriceCents: unitPriceCents,
             lastPurchaseDate: todayISO(),
             currentQty: product.currentQty + purchasedQty,
             updatedAt: now,
@@ -370,9 +400,9 @@ export function useFinance(selectedYm: string) {
             id: createId("buy"),
             productId: product.id,
             product: product.product,
-            price: purchaseTotal,
+            totalCents: purchaseTotal,
             quantity: purchasedQty,
-            unitPrice: item.priceMode === "unit" ? enteredPrice : undefined,
+            unitPriceCents,
             priceMode: item.priceMode,
             date: todayISO(),
             createdAt: now,
@@ -427,6 +457,7 @@ export function useFinance(selectedYm: string) {
     monthPurchases,
     monthPurchaseSummary,
     fixedForMonth,
+    selectedYm,
     dashboard,
     summary,
     createMovement,
@@ -435,6 +466,7 @@ export function useFinance(selectedYm: string) {
     createFixedExpense,
     updateFixedExpense,
     removeFixedExpense,
+    markFixedPaid,
     createProduct,
     updateProduct,
     removeProduct,

@@ -6,6 +6,18 @@ export function currency(value: number): string {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+export function toCents(euros: number): number {
+  return Math.round(euros * 100);
+}
+
+export function fromCents(cents: number): number {
+  return cents / 100;
+}
+
+export function currencyCents(cents: number): string {
+  return currency(fromCents(cents));
+}
+
 export function parseAmount(input: string): number | null {
   let value = input.trim().replace(/[\s\u00a0\u202f]/g, "").replace(/€/g, "");
   if (!value || !/^[0-9.,]+$/.test(value)) return null;

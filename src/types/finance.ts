@@ -11,8 +11,6 @@ export type MovementCategory =
   | "Otros"
   | (string & {});
 
-export type FixedStatus = "Pendiente" | "Pagado";
-
 export type ProductCategory =
   | "Despensa"
   | "Limpieza"
@@ -34,7 +32,7 @@ export type Movement = {
   category: MovementCategory;
   budgetSpaceId?: string;
   description: string;
-  amount: number;
+  amountCents: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -42,19 +40,27 @@ export type Movement = {
 export type FixedExpense = {
   id: string;
   concept: string;
-  amount: number;
+  amountCents: number;
   payDay: number;
-  dueDate: string;
-  status: FixedStatus;
+  startMonth: string;
+  endMonth?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type FixedPayment = {
+  id: string;
+  expenseId: string;
+  month: string;
+  paidAt: string;
+  amountCents: number;
 };
 
 export type MarketProduct = {
   id: string;
   product: string;
   category: ProductCategory;
-  lastPrice: number;
+  lastUnitPriceCents: number;
   lastPurchaseDate: string;
   currentQty: number;
   minQty: number;
@@ -66,22 +72,25 @@ export type MarketPurchase = {
   id: string;
   productId: string;
   product: string;
-  price: number;
+  totalCents: number;
   quantity?: number;
-  unitPrice?: number;
+  unitPriceCents?: number;
   priceMode?: "total" | "unit";
   date: string;
   createdAt: string;
 };
 
 export type BackupPayload = {
-  version: 1;
+  version: 2;
   exportedAt: string;
   movements: Movement[];
   fixedExpenses: FixedExpense[];
+  fixedPayments: FixedPayment[];
   products: MarketProduct[];
   purchases: MarketPurchase[];
-  spaces?: import("./spaces").SpacesState;
+  spaces: import("./spaces").SpacesState;
+  notes: import("./notes").Note[];
+  checklistIds: string[];
 };
 
 export const movementCategories: MovementCategory[] = [
@@ -102,15 +111,4 @@ export const productCategories: ProductCategory[] = [
   "Mascotas",
   "Bebidas",
   "Otros",
-];
-
-export const fixedConcepts = [
-  "Renta",
-  "Internet",
-  "Teléfono",
-  "Gimnasio",
-  "Streaming",
-  "Seguro",
-  "Agua",
-  "Electricidad",
 ];

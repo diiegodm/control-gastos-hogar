@@ -9,7 +9,7 @@ import { Card, StatCard } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
 import { formatDate, monthOption } from "../lib/date";
-import { currency } from "../lib/money";
+import { currency, fromCents } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { useSpaces } from "../hooks/useSpaces";
 
@@ -76,9 +76,9 @@ export function Dashboard({ selectedYm, onMonthChange, finance, spaces, onOpenSp
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           {[...spaces.budgets.filter((item) => !item.archived).slice(0, 2), ...spaces.goals.filter((item) => !item.archived).slice(0, 2)].slice(0, 4).map((space) => {
-            const goal = "target" in space;
-            const amount = goal ? space.saved : space.limit;
-            const total = goal ? space.target : space.limit;
+            const goal = "targetCents" in space;
+            const amount = goal ? fromCents(space.savedCents) : fromCents(space.limitCents);
+            const total = goal ? fromCents(space.targetCents) : fromCents(space.limitCents);
             const progress = goal ? Math.min(100, amount / total * 100) : 0;
             return <button key={space.id} onClick={onOpenSpaces} type="button" className="rounded-xl border border-[#30383b] bg-[#1b252b] p-3 text-left"><span className="text-lg">{space.icon}</span><p className="mt-1 truncate text-sm font-bold">{space.name}</p><p className="mt-1 text-xs text-slate-400">{goal ? `${currency(amount)} / ${currency(total)}` : `${currency(total)} / mes`}</p>{goal ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#354047]"><div className="h-full rounded-full bg-[#b7f34a]" style={{ width: `${progress}%` }} /></div> : null}</button>;
           })}
@@ -88,7 +88,7 @@ export function Dashboard({ selectedYm, onMonthChange, finance, spaces, onOpenSp
 
       <Card>
         <div className="mb-3 flex items-center justify-between"><div><h2 className="text-lg font-black text-slate-50">Movimientos recientes</h2><p className="mt-1 text-sm text-slate-400">Actividad del mes</p></div><button type="button" className="text-sm font-bold text-[#b7f34a]" onClick={onOpenSpaces}>Ver todos</button></div>
-        <div className="space-y-2">{finance.monthMovements.slice(0, 4).length ? finance.monthMovements.slice(0, 4).map((movement) => <div key={movement.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#1b252b] p-3"><div className="min-w-0"><p className="truncate font-bold">{movement.description}</p><p className="text-xs text-slate-400">{movement.category} · {formatDate(movement.date)}</p></div><p className={`shrink-0 font-black ${movement.type === "Ingreso" ? "text-[#b7f34a]" : "text-slate-100"}`}>{movement.type === "Ingreso" ? "+" : "−"}{currency(movement.amount)}</p></div>) : <EmptyState title="Sin movimientos este mes" body="Usa el botón + para registrar el primero." />}</div>
+        <div className="space-y-2">{finance.monthMovements.slice(0, 4).length ? finance.monthMovements.slice(0, 4).map((movement) => <div key={movement.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#1b252b] p-3"><div className="min-w-0"><p className="truncate font-bold">{movement.description}</p><p className="text-xs text-slate-400">{movement.category} · {formatDate(movement.date)}</p></div><p className={`shrink-0 font-black ${movement.type === "Ingreso" ? "text-[#b7f34a]" : "text-slate-100"}`}>{movement.type === "Ingreso" ? "+" : "−"}{currency(fromCents(movement.amountCents))}</p></div>) : <EmptyState title="Sin movimientos este mes" body="Usa el botón + para registrar el primero." />}</div>
       </Card>
 
       <Card>
@@ -158,7 +158,7 @@ export function Dashboard({ selectedYm, onMonthChange, finance, spaces, onOpenSp
                   <p className="mt-1 text-sm text-slate-400">{formatDate(payment.dueDateForSelectedMonth)}</p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="font-black text-slate-100">{currency(payment.amount)}</p>
+                  <p className="font-black text-slate-100">{currency(fromCents(payment.amountCents))}</p>
                   <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${alertClasses[payment.alert]}`}>
                     {payment.daysRemaining < 0 ? "Vencido" : `${payment.daysRemaining} días`}
                   </span>

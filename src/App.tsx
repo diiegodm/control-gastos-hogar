@@ -11,7 +11,7 @@ import { useSpaces } from "./hooks/useSpaces";
 import { useLocalAuth } from "./hooks/useLocalAuth";
 import { LocalAccess } from "./components/LocalAccess";
 import { currentYearMonth, monthOption } from "./lib/date";
-import { parseBackup } from "./lib/storage";
+import { parseBackup } from "./lib/db";
 
 const initialMonth = currentYearMonth();
 
@@ -70,7 +70,7 @@ export default function App() {
     return <LocalAccess auth={auth} />;
   }
 
-  if (finance.loading) {
+  if (finance.loading || spaces.loading || notes.loading) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-app px-6 text-center">
         <div>

@@ -3,7 +3,8 @@ import { Card, StatCard } from "../components/Card";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
 import { formatLongDate, todayISO } from "../lib/date";
-import { currency, numberValue, parseAmount } from "../lib/money";
+import { currency, fromCents, numberValue, parseAmount, toCents } from "../lib/money";
+import { getChecklistIds, saveChecklistIds } from "../lib/db";
 import type { useFinance } from "../hooks/useFinance";
 import type { MarketProduct, ProductCategory } from "../types/finance";
 import { productCategories } from "../types/finance";
@@ -23,21 +24,6 @@ const tabs: Array<{ id: Tab; label: string }> = [
   { id: "historial", label: "Historial" },
 ];
 
-const CHECKLIST_KEY = "finanzas-hogar-market-checklist-v1";
-type ChecklistLoad = { ids: Set<string>; canPersist: boolean; error: string | null };
-
-function loadChecklist(): ChecklistLoad {
-  try {
-    const raw = localStorage.getItem(CHECKLIST_KEY);
-    if (!raw) return { ids: new Set(), canPersist: true, error: null };
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== "string")) throw new Error("invalid checklist");
-    return { ids: new Set(parsed), canPersist: true, error: null };
-  } catch {
-    return { ids: new Set(), canPersist: false, error: "No se pudo leer la lista guardada; no se sobrescribirá." };
-  }
-}
-
 function suggestedQuantity(product: MarketProduct): number {
   return Math.max(1, Math.ceil(product.minQty - product.currentQty + 1));
 }
@@ -55,10 +41,9 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
   const [inventorySearch, setInventorySearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"Todas" | ProductCategory>("Todas");
   const [finalizing, setFinalizing] = useState(false);
-  const [initialChecklist] = useState(loadChecklist);
-  const [checkedRestockIds, setCheckedRestockIds] = useState(initialChecklist.ids);
-  const [checklistCanPersist] = useState(initialChecklist.canPersist);
-  const [checklistError, setChecklistError] = useState<string | null>(initialChecklist.error);
+  const [checkedRestockIds, setCheckedRestockIds] = useState<Set<string>>(new Set());
+  const [checklistLoaded, setChecklistLoaded] = useState(false);
+  const [checklistError, setChecklistError] = useState<string | null>(null);
   const [formError, setFormError] = useState("");
 
   const restock = useMemo(
@@ -67,7 +52,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
   );
 
   const estimatedRestock = useMemo(
-    () => restock.reduce((sum, product) => sum + suggestedQuantity(product) * product.lastPrice, 0),
+    () => restock.reduce((sum, product) => sum + suggestedQuantity(product) * fromCents(product.lastUnitPriceCents), 0),
     [restock],
   );
 
@@ -102,14 +87,21 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
   }, [categoryFilter, finance.products, inventorySearch]);
 
   useEffect(() => {
-    if (!checklistCanPersist) return;
-    try {
-      localStorage.setItem(CHECKLIST_KEY, JSON.stringify([...checkedRestockIds]));
-      setChecklistError(null);
-    } catch {
-      setChecklistError("No se pudo guardar la lista de reposición en este dispositivo.");
-    }
-  }, [checklistCanPersist, checkedRestockIds]);
+    let active = true;
+    void getChecklistIds().then((ids) => {
+      if (active) { setCheckedRestockIds(new Set(ids)); setChecklistLoaded(true); setChecklistError(null); }
+    }).catch((error: unknown) => {
+      if (active) { setChecklistError(error instanceof Error ? error.message : "No se pudo leer la lista de reposición."); setChecklistLoaded(true); }
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!checklistLoaded) return;
+    void saveChecklistIds([...checkedRestockIds]).then(() => setChecklistError(null)).catch((error: unknown) => {
+      setChecklistError(error instanceof Error ? error.message : "No se pudo guardar la lista de reposición.");
+    });
+  }, [checklistLoaded, checkedRestockIds]);
 
   useEffect(() => {
     const validIds = new Set(restock.map((product) => product.id));
@@ -132,7 +124,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
     const payload = {
       product: String(formData.get("product") || "").trim(),
       category: String(formData.get("category") || "Otros") as ProductCategory,
-      lastPrice,
+      lastUnitPriceCents: toCents(lastPrice),
       lastPurchaseDate: String(formData.get("lastPurchaseDate") || todayISO()),
       currentQty: numberValue(formData.get("currentQty")),
       minQty: numberValue(formData.get("minQty")),
@@ -157,7 +149,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
     if (price === null) { setFormError("Introduce un precio válido para registrar la compra."); return; }
     setFormError("");
     const priceMode = String(formData.get("priceMode") || "total") as "total" | "unit";
-    await finance.markProductBought(product.id, price, quantity, priceMode);
+    await finance.markProductBought(product.id, toCents(price), quantity, priceMode);
     setCheckedRestockIds((current) => {
       const next = new Set(current);
       next.delete(product.id);
@@ -176,7 +168,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
     if (items.some((item) => item.price === null)) { setFormError("Revisa los precios: usa un importe válido, por ejemplo 2,50."); return; }
     setFormError("");
 
-    await finance.completeMarketPurchase(items.map((item) => ({ ...item, price: item.price as number })));
+    await finance.completeMarketPurchase(items.map((item) => ({ productId: item.productId, quantity: item.quantity, priceCents: toCents(item.price as number), priceMode: item.priceMode })));
     setCheckedRestockIds((current) => {
       const next = new Set(current);
       checkedProducts.forEach((product) => next.delete(product.id));
@@ -235,7 +227,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
             <input className="input" name="minQty" type="number" step="1" min="0" placeholder="Cantidad mínima" defaultValue={editing?.minQty ?? ""} required />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <input className="input" name="lastPrice" type="text" inputMode="decimal" placeholder="Último precio (ej. 2,50)" defaultValue={editing?.lastPrice ?? 0} />
+            <input className="input" name="lastPrice" type="text" inputMode="decimal" placeholder="Último precio (ej. 2,50)" defaultValue={fromCents(editing?.lastUnitPriceCents ?? 0)} />
             <input className="input" name="lastPurchaseDate" type="date" defaultValue={editing?.lastPurchaseDate ?? todayISO()} />
           </div>
           <div className="flex gap-2">
@@ -302,7 +294,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
                       Actual {product.currentQty} · mínimo {product.minQty} · sugerido {suggested}
                     </p>
                   </div>
-                  <p className="font-black text-blue-950">{currency(product.lastPrice)}</p>
+                  <p className="font-black text-blue-950">{currency(fromCents(product.lastUnitPriceCents))}</p>
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_1.2fr]">
                   <input
@@ -319,7 +311,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
                     name={`price-${product.id}`}
                     type="text"
                     inputMode="decimal"
-                    defaultValue={product.lastPrice}
+                    defaultValue={fromCents(product.lastUnitPriceCents)}
                     placeholder="Precio"
                   />
                   <select className="input h-11" name={`priceMode-${product.id}`} defaultValue="total">
@@ -396,7 +388,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
               {restockNeeded ? ` · sugerido comprar ${suggested}` : ""}
             </p>
           </div>
-          <p className="font-black text-slate-950">{currency(product.lastPrice)}</p>
+          <p className="font-black text-slate-950">{currency(fromCents(product.lastUnitPriceCents))}</p>
         </div>
 
         {buyingId === product.id ? (
@@ -414,7 +406,7 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
             </select>
             <div className="grid grid-cols-2 gap-2">
               <input className="input h-11" name="quantity" type="number" min="1" step="1" defaultValue={suggested} placeholder="Cantidad" />
-              <input className="input h-11" name="price" type="text" inputMode="decimal" defaultValue={product.lastPrice} placeholder="Precio" />
+              <input className="input h-11" name="price" type="text" inputMode="decimal" defaultValue={fromCents(product.lastUnitPriceCents)} placeholder="Precio" />
             </div>
             <p className="text-xs font-semibold text-blue-700">
               Paquete: cantidad 10 y precio 2,50 = total 2,50. Unidad: cantidad 3 y precio 2,00 = total 6,00.
@@ -616,12 +608,12 @@ export function Market({ selectedYm, onMonthChange, finance }: Props) {
                     <p className="text-sm text-slate-500">
                       {formatLongDate(purchase.date)} · {purchase.totalQuantity} uds
                       {purchase.count > 1 ? ` · ${purchase.count} compras` : ""}
-                      {purchase.priceMode === "unit" && purchase.unitPrice
-                        ? ` · ${currency(purchase.unitPrice)} c/u`
+                      {purchase.priceMode === "unit" && purchase.unitPriceCents
+                        ? ` · ${currency(fromCents(purchase.unitPriceCents))} c/u`
                         : ""}
                     </p>
                   </div>
-                  <p className="font-black text-slate-950">{currency(purchase.price)}</p>
+                  <p className="font-black text-slate-950">{currency(fromCents(purchase.totalCents))}</p>
                 </div>
               ))
             ) : (

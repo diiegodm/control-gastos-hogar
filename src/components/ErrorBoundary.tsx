@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { downloadBackup, exportBackup } from "../lib/storage";
+import { downloadBackup, exportBackup } from "../lib/db";
 
 type Props = { children: ReactNode };
 type State = { hasError: boolean; exportError: string | null };

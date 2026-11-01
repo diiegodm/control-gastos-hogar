@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseAmount } from "../lib/money";
-import { isSameMonth, monthOption, shiftYearMonth } from "../lib/date";
+import { dueDateForMonth, isSameMonth, monthOption, shiftYearMonth } from "../lib/date";
 import { monthSummary } from "../lib/summary";
 import type { FixedExpense, MarketPurchase, Movement } from "../types/finance";
 
@@ -29,17 +29,22 @@ describe("mes y resumen mensual", () => {
     expect(isSameMonth("2026-01-04", "2027-01")).toBe(false);
   });
 
+  it("ajusta el vencimiento al último día del mes", () => {
+    expect(dueDateForMonth(31, "2026-02")).toBe("2026-02-28");
+    expect(dueDateForMonth(31, "2026-04")).toBe("2026-04-30");
+  });
+
   it("suma ingresos, fijos, variables, mercado y categorías, incluida Ropa", () => {
     const movements: Movement[] = [
-      { id: "in", date: "2027-01-05", type: "Ingreso", category: "Otros", description: "Salario", amount: 2000, createdAt: "", updatedAt: "" },
-      { id: "ropa", date: "2027-01-06", type: "Gasto", category: "Ropa", description: "Abrigo", amount: 40, createdAt: "", updatedAt: "" },
-      { id: "food", date: "2026-01-06", type: "Gasto", category: "Comidas", description: "Fuera de mes", amount: 900, createdAt: "", updatedAt: "" },
+      { id: "in", date: "2027-01-05", type: "Ingreso", category: "Otros", description: "Salario", amountCents: 200000, createdAt: "", updatedAt: "" },
+      { id: "ropa", date: "2027-01-06", type: "Gasto", category: "Ropa", description: "Abrigo", amountCents: 4000, createdAt: "", updatedAt: "" },
+      { id: "food", date: "2026-01-06", type: "Gasto", category: "Comidas", description: "Fuera de mes", amountCents: 90000, createdAt: "", updatedAt: "" },
     ];
     const fixedExpenses: FixedExpense[] = [
-      { id: "fix", concept: "Internet", amount: 35, payDay: 5, dueDate: "2027-01-05", status: "Pendiente", createdAt: "", updatedAt: "" },
+      { id: "fix", concept: "Internet", amountCents: 3500, payDay: 5, startMonth: "2026-01", createdAt: "", updatedAt: "" },
     ];
     const purchases: MarketPurchase[] = [
-      { id: "buy", productId: "milk", product: "Leche", price: 10, date: "2027-01-09", createdAt: "" },
+      { id: "buy", productId: "milk", product: "Leche", totalCents: 1000, date: "2027-01-09", createdAt: "" },
     ];
 
     const summary = monthSummary({ movements, fixedExpenses, purchases }, "2027-01");

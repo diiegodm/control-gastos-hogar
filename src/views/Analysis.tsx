@@ -4,6 +4,7 @@ import { Card } from "../components/Card";
 import { MonthSelector } from "../components/MonthSelector";
 import { currency } from "../lib/money";
 import { monthOption, shiftYearMonth } from "../lib/date";
+import { monthSummary } from "../lib/summary";
 import type { useFinance } from "../hooks/useFinance";
 
 type Finance = ReturnType<typeof useFinance>;
@@ -15,14 +16,9 @@ export function Analysis({ finance, selectedYm, onMonthChange }: { finance: Fina
     const firstYm = shiftYearMonth(selectedYm, -(period - 1));
     return Array.from({ length: period }, (_, index) => {
       const ym = shiftYearMonth(firstYm, index);
-      const movements = finance.movements.filter((item) => item.date.startsWith(ym));
-      const purchases = finance.purchases.filter((item) => item.date.startsWith(ym));
-      const fixedExpenses = finance.fixedExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-      const income = movements.filter((item) => item.type === "Ingreso").reduce((sum, item) => sum + item.amount, 0);
-      const variableExpenses = movements.filter((item) => item.type === "Gasto").reduce((sum, item) => sum + item.amount, 0)
-        + purchases.reduce((sum, item) => sum + item.price, 0);
+      const summary = monthSummary(finance, ym);
       const month = monthOption(ym);
-      return { month: `${month.shortLabel} ${month.year}`, ingresos: income, gastos: fixedExpenses + variableExpenses };
+      return { month: `${month.shortLabel} ${month.year}`, ingresos: summary.income, gastos: summary.totalSpent };
     });
   }, [finance.fixedExpenses, finance.movements, finance.purchases, period, selectedYm]);
 

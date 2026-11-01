@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { movementCategories, type MovementCategory, type MovementType } from "../types/finance";
 import { todayISO } from "../lib/date";
-import { parseAmount } from "../lib/money";
+import { parseAmount, toCents } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { BudgetSpace } from "../types/spaces";
 
@@ -34,7 +34,7 @@ export function QuickMovement({ finance, customCategories = [], budgetSpaces = [
         category: category as MovementCategory,
         budgetSpaceId: String(form.get("budgetSpaceId") || "") || undefined,
         description: description || (type === "Ingreso" ? "Ingreso" : "Gasto"),
-        amount,
+        amountCents: toCents(amount),
       });
       onClose();
     } catch {
