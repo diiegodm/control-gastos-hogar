@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { SpreadsheetFile, Workbook } from "@oai/artifact-tool";
 
-const outputDir = "outputs/finanzas_personales";
+const outputDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "outputs", "finanzas_personales");
 const outputPath = `${outputDir}/finanzas_personales_hogar.xlsx`;
 
 const wb = Workbook.create();

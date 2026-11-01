@@ -5,14 +5,14 @@ import type {
   MarketPurchase,
   Movement,
 } from "../types/finance";
-import { currentYear, toISODate, todayISO } from "./date";
-import type { SpacesState } from "../types/spaces";
+import type { BudgetSpace, GoalSpace, SpacesState } from "../types/spaces";
+import { todayISO } from "./date";
 
 const DB_NAME = "finanzas-hogar-db";
 const DB_VERSION = 1;
 const SPACES_KEY = "finanzas-hogar-spaces-v1";
-
-type StoreName = "movements" | "fixedExpenses" | "products" | "purchases";
+const STORE_NAMES = ["movements", "fixedExpenses", "products", "purchases"] as const;
+type StoreName = (typeof STORE_NAMES)[number];
 
 type StoreMap = {
   movements: Movement;
@@ -20,6 +20,8 @@ type StoreMap = {
   products: MarketProduct;
   purchases: MarketPurchase;
 };
+
+type StoreSnapshot = { [K in StoreName]: StoreMap[K][] };
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -30,23 +32,25 @@ export function createId(prefix: string): string {
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
 
-  dbPromise = new Promise((resolve, reject) => {
+  const opening = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
     request.onupgradeneeded = () => {
       const db = request.result;
-      for (const store of ["movements", "fixedExpenses", "products", "purchases"] as StoreName[]) {
-        if (!db.objectStoreNames.contains(store)) {
-          db.createObjectStore(store, { keyPath: "id" });
-        }
+      for (const store of STORE_NAMES) {
+        if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: "id" });
       }
     };
 
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error("No se pudo abrir el almacenamiento local."));
   });
 
-  return dbPromise;
+  dbPromise = opening;
+  void opening.catch(() => {
+    if (dbPromise === opening) dbPromise = null;
+  });
+  return opening;
 }
 
 async function tx<T>(
@@ -57,20 +61,218 @@ async function tx<T>(
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(storeName, mode);
-    const store = transaction.objectStore(storeName);
-    const request = action(store);
     let result: T | void;
+    const request = action(transaction.objectStore(storeName));
 
     if (request) {
-      request.onsuccess = () => {
-        result = request.result;
-      };
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => { result = request.result; };
+      request.onerror = () => reject(request.error ?? new Error("Falló una operación de almacenamiento."));
     }
 
     transaction.oncomplete = () => resolve(result);
-    transaction.onerror = () => reject(transaction.error);
+    transaction.onerror = () => reject(transaction.error ?? new Error("Falló una transacción de almacenamiento."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló una transacción de almacenamiento."));
   });
+}
+
+function readAllStores(): Promise<StoreSnapshot> {
+  return openDb().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction([...STORE_NAMES], "readonly");
+    const snapshot = {} as StoreSnapshot;
+
+    for (const name of STORE_NAMES) {
+      const request = transaction.objectStore(name).getAll();
+      request.onsuccess = () => { (snapshot as Record<StoreName, unknown[]>)[name] = request.result as unknown[]; };
+    }
+
+    transaction.oncomplete = () => resolve(snapshot);
+    transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo leer el respaldo actual."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la lectura del respaldo actual."));
+  }));
+}
+
+function replaceStoresAtomically(snapshot: StoreSnapshot): Promise<void> {
+  return openDb().then((db) => new Promise((resolve, reject) => {
+    const transaction = db.transaction([...STORE_NAMES], "readwrite");
+
+    for (const name of STORE_NAMES) {
+      const store = transaction.objectStore(name);
+      store.clear();
+      for (const item of snapshot[name]) store.put(item);
+    }
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo completar la restauración."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la restauración; los datos anteriores se mantienen."));
+  }));
+}
+
+function asRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} debe ser un objeto válido.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requiredString(record: Record<string, unknown>, key: string, label: string): string {
+  const value = record[key];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${label}.${key} debe ser un texto válido.`);
+  }
+  return value;
+}
+
+function optionalString(record: Record<string, unknown>, key: string, label: string): void {
+  if (record[key] !== undefined && typeof record[key] !== "string") {
+    throw new Error(`${label}.${key} debe ser un texto válido.`);
+  }
+}
+
+function finiteNumber(record: Record<string, unknown>, key: string, label: string, optional = false): void {
+  const value = record[key];
+  if (optional && value === undefined) return;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label}.${key} debe ser un número finito.`);
+  }
+}
+
+function isoDate(record: Record<string, unknown>, key: string, label: string): void {
+  const value = requiredString(record, key, label);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error(`${label}.${key} debe tener formato YYYY-MM-DD.`);
+  }
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new Error(`${label}.${key} no es una fecha válida.`);
+  }
+}
+
+function recordArray(value: unknown, key: string): Record<string, unknown>[] {
+  if (!Array.isArray(value)) throw new Error(`El respaldo debe incluir la lista "${key}".`);
+  const seenIds = new Set<string>();
+  return value.map((item, index) => {
+    const label = `${key}[${index}]`;
+    const record = asRecord(item, label);
+    const id = requiredString(record, "id", label);
+    if (seenIds.has(id)) throw new Error(`El respaldo contiene un identificador duplicado en ${label}.`);
+    seenIds.add(id);
+    return record;
+  });
+}
+
+function parseSpaces(value: unknown): SpacesState {
+  const spaces = asRecord(value, "spaces");
+  const budgets = recordArray(spaces.budgets, "spaces.budgets").map((item, index) => {
+    const label = `spaces.budgets[${index}]`;
+    requiredString(item, "name", label);
+    requiredString(item, "category", label);
+    finiteNumber(item, "limit", label);
+    requiredString(item, "color", label);
+    requiredString(item, "icon", label);
+    if (typeof item.archived !== "boolean") throw new Error(`${label}.archived debe ser booleano.`);
+    optionalString(item, "categoryName", label);
+    return item as unknown as BudgetSpace;
+  });
+  const goals = recordArray(spaces.goals, "spaces.goals").map((item, index) => {
+    const label = `spaces.goals[${index}]`;
+    requiredString(item, "name", label);
+    finiteNumber(item, "target", label);
+    finiteNumber(item, "saved", label);
+    requiredString(item, "color", label);
+    requiredString(item, "icon", label);
+    if (typeof item.archived !== "boolean") throw new Error(`${label}.archived debe ser booleano.`);
+    optionalString(item, "categoryName", label);
+    if (item.contributions !== undefined) {
+      if (!Array.isArray(item.contributions)) throw new Error(`${label}.contributions debe ser una lista.`);
+      item.contributions.forEach((rawContribution, contributionIndex) => {
+        const contributionLabel = `${label}.contributions[${contributionIndex}]`;
+        const contribution = asRecord(rawContribution, contributionLabel);
+        finiteNumber(contribution, "amount", contributionLabel);
+        requiredString(contribution, "date", contributionLabel);
+      });
+    }
+    return item as unknown as GoalSpace;
+  });
+  const stringList = (key: string, fallback: string[] = []): string[] => {
+    const list = spaces[key];
+    if (list === undefined) return fallback;
+    if (!Array.isArray(list) || list.some((entry) => typeof entry !== "string")) {
+      throw new Error(`spaces.${key} debe ser una lista de textos.`);
+    }
+    return list as string[];
+  };
+
+  return {
+    budgets,
+    goals,
+    budgetCategories: stringList("budgetCategories", [...new Set(budgets.map((item) => item.categoryName).filter((name): name is string => Boolean(name)))]),
+    goalCategories: stringList("goalCategories", [...new Set(goals.map((item) => item.categoryName).filter((name): name is string => Boolean(name)))]),
+    movementCategories: stringList("movementCategories"),
+  };
+}
+
+export function parseBackup(raw: unknown): BackupPayload {
+  const backup = asRecord(raw, "El respaldo");
+  if (backup.version !== 1) throw new Error("La versión del respaldo no es compatible.");
+
+  const movements = recordArray(backup.movements, "movements").map((item, index) => {
+    const label = `movements[${index}]`;
+    isoDate(item, "date", label);
+    if (item.type !== "Ingreso" && item.type !== "Gasto") throw new Error(`${label}.type no es válido.`);
+    requiredString(item, "category", label);
+    requiredString(item, "description", label);
+    finiteNumber(item, "amount", label);
+    optionalString(item, "budgetSpaceId", label);
+    return item as unknown as Movement;
+  });
+  const fixedExpenses = recordArray(backup.fixedExpenses, "fixedExpenses").map((item, index) => {
+    const label = `fixedExpenses[${index}]`;
+    requiredString(item, "concept", label);
+    finiteNumber(item, "amount", label);
+    finiteNumber(item, "payDay", label);
+    if (!Number.isInteger(item.payDay) || Number(item.payDay) < 1 || Number(item.payDay) > 31) {
+      throw new Error(`${label}.payDay debe ser un día entre 1 y 31.`);
+    }
+    isoDate(item, "dueDate", label);
+    if (item.status !== "Pendiente" && item.status !== "Pagado") throw new Error(`${label}.status no es válido.`);
+    return item as unknown as FixedExpense;
+  });
+  const products = recordArray(backup.products, "products").map((item, index) => {
+    const label = `products[${index}]`;
+    requiredString(item, "product", label);
+    requiredString(item, "category", label);
+    finiteNumber(item, "lastPrice", label);
+    isoDate(item, "lastPurchaseDate", label);
+    finiteNumber(item, "currentQty", label);
+    finiteNumber(item, "minQty", label);
+    return item as unknown as MarketProduct;
+  });
+  const purchases = recordArray(backup.purchases, "purchases").map((item, index) => {
+    const label = `purchases[${index}]`;
+    requiredString(item, "productId", label);
+    requiredString(item, "product", label);
+    finiteNumber(item, "price", label);
+    finiteNumber(item, "quantity", label, true);
+    finiteNumber(item, "unitPrice", label, true);
+    isoDate(item, "date", label);
+    if (item.priceMode !== undefined && item.priceMode !== "total" && item.priceMode !== "unit") {
+      throw new Error(`${label}.priceMode no es válido.`);
+    }
+    return item as unknown as MarketPurchase;
+  });
+  requiredString(backup, "exportedAt", "El respaldo");
+
+  const spaces = backup.spaces === undefined ? undefined : parseSpaces(backup.spaces);
+  return {
+    version: 1,
+    exportedAt: String(backup.exportedAt),
+    movements,
+    fixedExpenses,
+    products,
+    purchases,
+    ...(spaces ? { spaces } : {}),
+  };
 }
 
 export async function getAll<K extends StoreName>(storeName: K): Promise<StoreMap[K][]> {
@@ -78,238 +280,62 @@ export async function getAll<K extends StoreName>(storeName: K): Promise<StoreMa
 }
 
 export async function putItem<K extends StoreName>(storeName: K, item: StoreMap[K]): Promise<void> {
-  await tx(storeName, "readwrite", (store) => {
-    store.put(item);
-  });
+  await tx(storeName, "readwrite", (store) => { store.put(item); });
 }
 
 export async function deleteItem(storeName: StoreName, id: string): Promise<void> {
-  await tx(storeName, "readwrite", (store) => {
-    store.delete(id);
-  });
+  await tx(storeName, "readwrite", (store) => { store.delete(id); });
 }
 
 export async function clearStore(storeName: StoreName): Promise<void> {
-  await tx(storeName, "readwrite", (store) => {
-    store.clear();
-  });
-}
-
-export async function seedIfEmpty(): Promise<void> {
-  await clearInitialMarketDataOnce();
-  await mergeDuplicateMarketProducts();
-
-  const existing = await getAll("movements");
-  if (existing.length > 0) return;
-
-  const now = new Date().toISOString();
-  const d = (month: number, day: number) => toISODate(new Date(currentYear, month, day));
-
-  const movements: Movement[] = [
-    {
-      id: createId("mov"),
-      date: d(0, 5),
-      type: "Ingreso",
-      category: "Otros",
-      description: "Salario enero",
-      amount: 2500,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: createId("mov"),
-      date: d(0, 8),
-      type: "Gasto",
-      category: "Mercado",
-      description: "Compra semanal",
-      amount: 124,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: createId("mov"),
-      date: d(0, 12),
-      type: "Gasto",
-      category: "Comidas",
-      description: "Cena rápida",
-      amount: 22,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: createId("mov"),
-      date: d(1, 5),
-      type: "Ingreso",
-      category: "Otros",
-      description: "Salario febrero",
-      amount: 2500,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: createId("mov"),
-      date: d(1, 14),
-      type: "Gasto",
-      category: "Mercado",
-      description: "Supermercado",
-      amount: 168,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: createId("mov"),
-      date: todayISO(),
-      type: "Ingreso",
-      category: "Otros",
-      description: "Ingreso del mes",
-      amount: 2500,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: createId("mov"),
-      date: todayISO(),
-      type: "Gasto",
-      category: "Mercado",
-      description: "Compra de hoy",
-      amount: 92,
-      createdAt: now,
-      updatedAt: now,
-    },
-  ];
-
-  const fixedExpenses: FixedExpense[] = [
-    { id: createId("fix"), concept: "Renta", amount: 800, payDay: 5, dueDate: d(new Date().getMonth(), 5), status: "Pendiente", createdAt: now, updatedAt: now },
-    { id: createId("fix"), concept: "Internet", amount: 35, payDay: 10, dueDate: d(new Date().getMonth(), 10), status: "Pendiente", createdAt: now, updatedAt: now },
-    { id: createId("fix"), concept: "Electricidad", amount: 48, payDay: 15, dueDate: d(new Date().getMonth(), 15), status: "Pendiente", createdAt: now, updatedAt: now },
-    { id: createId("fix"), concept: "Streaming", amount: 14, payDay: 22, dueDate: d(new Date().getMonth(), 22), status: "Pagado", createdAt: now, updatedAt: now },
-  ];
-
-  const products: MarketProduct[] = [];
-  const purchases: MarketPurchase[] = [];
-
-  await Promise.all([
-    ...movements.map((item) => putItem("movements", item)),
-    ...fixedExpenses.map((item) => putItem("fixedExpenses", item)),
-    ...products.map((item) => putItem("products", item)),
-    ...purchases.map((item) => putItem("purchases", item)),
-  ]);
-}
-
-async function clearInitialMarketDataOnce(): Promise<void> {
-  const flag = "finanzas-hogar-market-clean-v1";
-  if (localStorage.getItem(flag)) return;
-
-  localStorage.setItem(flag, "1");
-}
-
-function normalizeProductName(name: string): string {
-  return name
-    .trim()
-    .toLocaleLowerCase("es-ES")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ");
-}
-
-async function mergeDuplicateMarketProducts(): Promise<void> {
-  const products = await getAll("products");
-  if (products.length < 2) return;
-
-  const purchases = await getAll("purchases");
-  const groups = new Map<string, MarketProduct[]>();
-
-  for (const product of products) {
-    const key = normalizeProductName(product.product);
-    groups.set(key, [...(groups.get(key) ?? []), product]);
-  }
-
-  for (const group of groups.values()) {
-    if (group.length < 2) continue;
-
-    const sorted = [...group].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const primary = sorted[0];
-    const duplicates = sorted.slice(1);
-    const duplicateIds = new Set(duplicates.map((product) => product.id));
-    const latest = [...group].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-
-    const merged: MarketProduct = {
-      ...primary,
-      product: latest.product,
-      category: latest.category,
-      lastPrice: latest.lastPrice,
-      lastPurchaseDate: latest.lastPurchaseDate,
-      currentQty: group.reduce((sum, product) => sum + product.currentQty, 0),
-      minQty: Math.max(...group.map((product) => product.minQty)),
-      updatedAt: new Date().toISOString(),
-    };
-
-    await putItem("products", merged);
-
-    await Promise.all(
-      purchases
-        .filter((purchase) => duplicateIds.has(purchase.productId))
-        .map((purchase) =>
-          putItem("purchases", {
-            ...purchase,
-            productId: primary.id,
-            product: merged.product,
-          }),
-        ),
-    );
-
-    await Promise.all(duplicates.map((product) => deleteItem("products", product.id)));
-  }
+  await tx(storeName, "readwrite", (store) => { store.clear(); });
 }
 
 export async function exportBackup(): Promise<BackupPayload> {
-  const [movements, fixedExpenses, products, purchases] = await Promise.all([
-    getAll("movements"),
-    getAll("fixedExpenses"),
-    getAll("products"),
-    getAll("purchases"),
-  ]);
-
-  let spaces: SpacesState | undefined;
-  try {
-    const rawSpaces = localStorage.getItem(SPACES_KEY);
-    if (rawSpaces) spaces = JSON.parse(rawSpaces) as SpacesState;
-  } catch {
-    spaces = undefined;
-  }
-
-  return {
+  const stores = await readAllStores();
+  const rawSpaces = localStorage.getItem(SPACES_KEY);
+  const spaces = rawSpaces ? parseSpaces(JSON.parse(rawSpaces)) : undefined;
+  return parseBackup({
     version: 1,
     exportedAt: new Date().toISOString(),
-    movements,
-    fixedExpenses,
-    products,
-    purchases,
-    spaces,
-  };
+    ...stores,
+    ...(spaces ? { spaces } : {}),
+  });
 }
 
-export async function importBackup(payload: BackupPayload): Promise<void> {
-  if (payload.version !== 1) {
-    throw new Error("El archivo de respaldo no es compatible.");
-  }
+export function downloadBackup(payload: BackupPayload): void {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `finanzas-hogar-${todayISO()}.json`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
-  await Promise.all([
-    clearStore("movements"),
-    clearStore("fixedExpenses"),
-    clearStore("products"),
-    clearStore("purchases"),
-  ]);
+export async function importBackup(raw: unknown): Promise<void> {
+  const backup = parseBackup(raw);
+  const previous = await readAllStores();
+  localStorage.getItem(SPACES_KEY);
 
-  if (payload.spaces) {
-    localStorage.setItem(SPACES_KEY, JSON.stringify(payload.spaces));
+  await replaceStoresAtomically({
+    movements: backup.movements,
+    fixedExpenses: backup.fixedExpenses,
+    products: backup.products,
+    purchases: backup.purchases,
+  });
+
+  if (backup.spaces) {
+    try {
+      localStorage.setItem(SPACES_KEY, JSON.stringify(backup.spaces));
+    } catch {
+      try {
+        await replaceStoresAtomically(previous);
+      } catch {
+        throw new Error("No se pudieron guardar los espacios y tampoco restaurar la base anterior. Descarga un respaldo antes de continuar.");
+      }
+      throw new Error("No se pudieron guardar los espacios del respaldo. Se restauraron los datos anteriores.");
+    }
     window.dispatchEvent(new Event("spaces-restored"));
   }
-
-  await Promise.all([
-    ...payload.movements.map((item) => putItem("movements", item)),
-    ...payload.fixedExpenses.map((item) => putItem("fixedExpenses", item)),
-    ...payload.products.map((item) => putItem("products", item)),
-    ...payload.purchases.map((item) => putItem("purchases", item)),
-  ]);
 }
