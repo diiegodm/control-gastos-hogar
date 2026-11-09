@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createId,
+  awardMascotMission,
+  awardMascotMovement,
   deleteFixedExpenseAndPayments,
   deleteFixedPayment,
   deleteItem,
@@ -13,6 +15,7 @@ import {
   putItem,
   saveFixedPaymentAndMovement,
   saveMarketPurchaseBatch,
+  saveReceiptTicket,
   updateMovementAndFixedPayment,
   deleteMovementAndLinkedPayment,
 } from "../lib/db";
@@ -31,9 +34,12 @@ import type {
   MarketPurchase,
   Movement,
   MovementCategory,
+  ReceiptLine,
+  ReceiptTicket,
 } from "../types/finance";
 import { monthSummary } from "../lib/summary";
 import { calculateCashBalance, resolveFinancialSettings } from "../lib/cashBalance";
+import { currentMonthKey } from "../lib/mascot";
 
 type FinanceState = {
   movements: Movement[];
@@ -41,6 +47,7 @@ type FinanceState = {
   fixedPayments: FixedPayment[];
   products: MarketProduct[];
   purchases: MarketPurchase[];
+  tickets: ReceiptTicket[];
   financialSettings: FinancialSettings;
 };
 
@@ -50,6 +57,7 @@ const emptyState: FinanceState = {
   fixedPayments: [],
   products: [],
   purchases: [],
+  tickets: [],
   financialSettings: { openingBalanceCents: 0, trackingStartMonth: todayISO().slice(0, 7) },
 };
 
@@ -79,12 +87,13 @@ export function useFinance(selectedYm: string) {
   const [retryCount, setRetryCount] = useState(0);
 
   const refresh = useCallback(async () => {
-    const [movements, fixedExpenses, fixedPayments, products, purchases, settingsRecord] = await Promise.all([
+    const [movements, fixedExpenses, fixedPayments, products, purchases, tickets, settingsRecord] = await Promise.all([
       getAll("movements"),
       getAll("fixedExpenses"),
       getAll("fixedPayments"),
       getAll("products"),
       getAll("purchases"),
+      getAll("tickets"),
       getItem("meta", "financialSettings"),
     ]);
 
@@ -94,6 +103,7 @@ export function useFinance(selectedYm: string) {
       fixedPayments,
       products: products.sort((a, b) => a.product.localeCompare(b.product)),
       purchases: purchases.sort((a, b) => b.date.localeCompare(a.date)),
+      tickets: tickets.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)),
       financialSettings: resolveFinancialSettings(settingsRecord?.value, movements, fixedPayments),
     });
   }, []);
@@ -237,12 +247,14 @@ export function useFinance(selectedYm: string) {
         if (matchesPaidFixed) throw new Error("Este cargo fijo ya está registrado como pagado este mes. No lo añadas otra vez en Movimientos.");
       }
       const now = new Date().toISOString();
-      await putItem("movements", {
+      const movement: Movement = {
         ...input,
         id: createId("mov"),
         createdAt: now,
         updatedAt: now,
-      });
+      };
+      await putItem("movements", movement);
+      try { await awardMascotMovement(movement.id); } catch { /* El fallo de la recompensa nunca bloquea el movimiento. */ }
       await refresh();
     },
     [refresh, state.fixedExpenses, state.fixedPayments],
@@ -281,6 +293,7 @@ export function useFinance(selectedYm: string) {
         createdAt: now,
         updatedAt: now,
       });
+      try { await awardMascotMission(`mission:fixed-organized:${currentMonthKey()}`, 20, "Gastos fijos organizados"); } catch { /* La recompensa es secundaria al gasto. */ }
       await refresh();
     },
     [refresh],
@@ -295,6 +308,7 @@ export function useFinance(selectedYm: string) {
         ...input,
         updatedAt: new Date().toISOString(),
       });
+      try { await awardMascotMission(`mission:fixed-organized:${currentMonthKey()}`, 20, "Gastos fijos organizados"); } catch { /* La recompensa es secundaria al gasto. */ }
       await refresh();
     },
     [refresh, state.fixedExpenses],
@@ -342,6 +356,7 @@ export function useFinance(selectedYm: string) {
         amountCents: expense.amountCents,
         movementId: movement.id,
       }, movement);
+      try { await awardMascotMovement(movement.id); } catch { /* La recompensa no afecta el registro del pago. */ }
     }
     await refresh();
   }, [refresh, selectedYm, state.fixedExpenses, state.fixedPayments, state.movements]);
@@ -438,6 +453,7 @@ export function useFinance(selectedYm: string) {
         source: "market", purchaseId: purchase.id, createdAt: now, updatedAt: now,
       };
       await saveMarketPurchaseBatch([updatedProduct], [purchase], [movement]);
+      try { await awardMascotMovement(movement.id); } catch { /* La recompensa no afecta la compra. */ }
       await refresh();
     },
     [refresh, state.products],
@@ -497,10 +513,87 @@ export function useFinance(selectedYm: string) {
         updates.map(({ purchase }) => purchase),
         updates.map(({ movement }) => movement),
       );
+      for (const { movement } of updates) {
+        try { await awardMascotMovement(movement.id); } catch { /* La recompensa no afecta la compra. */ }
+      }
       await refresh();
     },
     [refresh, state.products],
   );
+
+  const saveTicket = useCallback(async (input: {
+    storeName: string;
+    date: string;
+    totalCents: number;
+    subtotalCents?: number;
+    taxCents?: number;
+    lines: ReceiptLine[];
+    rawText: string;
+  }) => {
+    if (!Number.isInteger(input.totalCents) || input.totalCents <= 0) throw new Error("El total del ticket debe ser mayor que cero.");
+    const id = createId("ticket");
+    const now = new Date().toISOString();
+    const byName = new Map(state.products.map((product) => [normalizeProductName(product.product), product]));
+    const updates = new Map<string, MarketProduct>();
+    const lines = input.lines.map((line) => {
+      if (line.inventoryAction === "ignore") return { ...line };
+      const existing = (line.productId ? state.products.find((product) => product.id === line.productId) : undefined)
+        ?? byName.get(normalizeProductName(line.description));
+      const current = existing ? (updates.get(existing.id) ?? existing) : undefined;
+      const productId = current?.id ?? createId("prd");
+      const next: MarketProduct = current
+        ? {
+            ...current,
+            category: line.category,
+            lastUnitPriceCents: line.unitPriceCents,
+            lastPurchaseDate: input.date,
+            currentQty: current.currentQty + line.quantity,
+            updatedAt: now,
+          }
+        : {
+            id: productId,
+            product: line.description.trim(),
+            category: line.category,
+            lastUnitPriceCents: line.unitPriceCents,
+            lastPurchaseDate: input.date,
+            currentQty: line.quantity,
+            minQty: 0,
+            createdAt: now,
+            updatedAt: now,
+          };
+      updates.set(productId, next);
+      byName.set(normalizeProductName(next.product), next);
+      return { ...line, inventoryAction: current ? "update" as const : "create" as const, productId };
+    });
+    const movementId = `ticket_${id}`;
+    const ticket: ReceiptTicket = {
+      id,
+      storeName: input.storeName.trim() || "Comercio",
+      date: input.date,
+      totalCents: input.totalCents,
+      subtotalCents: input.subtotalCents,
+      taxCents: input.taxCents,
+      lines,
+      rawText: input.rawText,
+      movementId,
+      createdAt: now,
+    };
+    const movement: Movement = {
+      id: movementId,
+      date: input.date,
+      type: "Gasto",
+      category: "Mercado",
+      description: `Compra en ${ticket.storeName}`,
+      amountCents: input.totalCents,
+      source: "ticket",
+      ticketId: id,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await saveReceiptTicket(ticket, movement, [...updates.values()]);
+    try { await awardMascotMovement(movement.id); } catch { /* La recompensa no afecta el ticket. */ }
+    await refresh();
+  }, [refresh, state.products]);
 
   const adjustProductQuantity = useCallback(
     async (id: string, delta: number) => {
@@ -555,6 +648,7 @@ export function useFinance(selectedYm: string) {
     removeProduct,
     markProductBought,
     completeMarketPurchase,
+    saveTicket,
     adjustProductQuantity,
     backup,
     restore,

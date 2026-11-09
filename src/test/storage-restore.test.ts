@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./fixtures/backup-v1.json";
-import { configureDatabaseNameForTests, deleteFixedExpenseAndPayments, deleteFixedPayment, exportBackup, getAll, getItem, importBackup, migrateLegacyMarketPurchasesOnce, parseBackup, putItem, saveChecklistIds, saveFixedPaymentAndMovement } from "../lib/db";
+import { configureDatabaseNameForTests, deleteFixedExpenseAndPayments, deleteFixedPayment, exportBackup, getAll, getItem, importBackup, migrateLegacyMarketPurchasesOnce, parseBackup, putItem, saveChecklistIds, saveFixedPaymentAndMovement, saveReceiptTicket } from "../lib/db";
 import type { Movement } from "../types/finance";
 
 const localValues = new Map<string, string>();
@@ -67,6 +67,15 @@ describe("restauración de respaldos", () => {
     await expect(getItem("spaces", "main")).resolves.toMatchObject({ state: { budgets: [{ limitCents: 15000 }], goals: [{ targetCents: 100000, savedCents: 10000 }] } });
   });
 
+  it("conserva el nombre y el XP local al importar un respaldo financiero antiguo", async () => {
+    await putItem("meta", { key: "mascotProfile", value: { name: "Lima", onboardingComplete: true, celebratedStage: "crecimiento" } });
+    await putItem("mascotEvents", { id: "movement:local", xp: 25, kind: "movement", reason: "Movimiento", sourceId: "local", occurredAt: "2026-11-09T12:00:00.000Z", activityDate: "2026-11-09" });
+    await importBackup(fixture);
+
+    await expect(getItem("meta", "mascotProfile")).resolves.toMatchObject({ value: { name: "Lima", onboardingComplete: true, celebratedStage: "crecimiento" } });
+    await expect(getAll("mascotEvents")).resolves.toContainEqual(expect.objectContaining({ id: "movement:local", xp: 25 }));
+  });
+
   it("recalcula el precio unitario del inventario desde la última compra por paquete", () => {
     const packagePurchase = structuredClone(fixture);
     packagePurchase.products[0].lastPrice = 6;
@@ -76,7 +85,7 @@ describe("restauración de respaldos", () => {
     expect(parseBackup(packagePurchase).products[0].lastUnitPriceCents).toBe(200);
   });
 
-  it("exporta y vuelve a importar v3 con saldo inicial y cargos fijos vinculados", async () => {
+  it("exporta y vuelve a importar v5 con saldo inicial, mascota y cargos fijos vinculados", async () => {
     const v2 = parseBackup(fixture);
     await importBackup(v2);
     const fixedPayment = { id: "fixed-fixture-1__2026-01", expenseId: "fixed-fixture-1", month: "2026-01", paidAt: "2026-01-10", amountCents: 3500, movementId: "fixed-movement-1" };
@@ -87,7 +96,7 @@ describe("restauración de respaldos", () => {
     await putItem("meta", { key: "financialSettings", value: { openingBalanceCents: 125000, trackingStartMonth: "2026-01" } });
     await saveChecklistIds(["product-fixture-1"]);
     const exported = await exportBackup();
-    expect(exported.version).toBe(3);
+    expect(exported.version).toBe(5);
     expect(exported.financialSettings).toEqual({ openingBalanceCents: 125000, trackingStartMonth: "2026-01" });
     expect(exported.fixedPayments).toContainEqual(fixedPayment);
     expect(exported.movements).toContainEqual(fixedMovement);
@@ -144,5 +153,23 @@ describe("restauración de respaldos", () => {
     }));
     expect((await getAll("movements")).filter((movement) => movement.purchaseId === "legacy-buy")).toHaveLength(1);
     await expect(getItem("meta", "marketPurchaseMovementsMigrated")).resolves.toMatchObject({ value: true });
+  });
+
+  it("guarda ticket, movimiento único e inventario de forma atómica e incluye el ticket en el respaldo", async () => {
+    const product = { id: "ticket-product", product: "Leche", category: "Despensa" as const, lastUnitPriceCents: 200, lastPurchaseDate: "2026-01-01", currentQty: 3, minQty: 1, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
+    const ticket = { id: "ticket-one", storeName: "Tienda", date: "2026-01-12", totalCents: 600, lines: [{ id: "line-one", description: "Leche", quantity: 2, unitPriceCents: 200, totalCents: 400, inventoryAction: "update" as const, productId: product.id, category: "Despensa" as const }], movementId: "ticket_ticket-one", createdAt: "2026-01-12T10:00:00.000Z" };
+    const movement: Movement = { id: ticket.movementId, date: ticket.date, type: "Gasto", category: "Mercado", description: "Compra en Tienda", amountCents: ticket.totalCents, source: "ticket", ticketId: ticket.id, createdAt: ticket.createdAt, updatedAt: ticket.createdAt };
+    await saveReceiptTicket(ticket, movement, [{ ...product, currentQty: 5 }]);
+    expect(await getAll("tickets")).toHaveLength(1);
+    expect(await getAll("movements")).toEqual([movement]);
+    expect(await getAll("products")).toMatchObject([{ id: product.id, currentQty: 5 }]);
+    const exported = await exportBackup();
+    expect(exported.tickets).toEqual([ticket]);
+    expect(exported.movements).toContainEqual(movement);
+    await importBackup(exported);
+    expect(await getAll("tickets")).toEqual([ticket]);
+
+    await expect(saveReceiptTicket(ticket, movement, [{ ...product, currentQty: 9 }])).rejects.toBeTruthy();
+    expect(await getAll("products")).toMatchObject([{ id: product.id, currentQty: 5 }]);
   });
 });

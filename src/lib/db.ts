@@ -1,16 +1,17 @@
-import type { BackupPayload, FinancialSettings, FixedExpense, FixedPayment, MarketProduct, MarketPurchase, Movement } from "../types/finance";
+import type { BackupPayload, FinancialSettings, FixedExpense, FixedPayment, MarketProduct, MarketPurchase, Movement, ReceiptTicket } from "../types/finance";
 import type { Note } from "../types/notes";
+import { DEFAULT_MASCOT_PROFILE, type MascotEvent, type MascotProfile, type MascotStage } from "../types/mascot";
 import type { BudgetSpace, GoalSpace, SpacesState } from "../types/spaces";
 import { todayISO } from "./date";
 import { toCents } from "./money";
 import { defaultFinancialSettings } from "./cashBalance";
 
 let databaseName = "finanzas-hogar-db";
-const DB_VERSION = 2;
+const DB_VERSION = 4;
 const LEGACY_SPACES_KEY = "finanzas-hogar-spaces-v1";
 const LEGACY_NOTES_KEY = "finanzas-hogar-notes-v1";
 const LEGACY_CHECKLIST_KEY = "finanzas-hogar-market-checklist-v1";
-const DATA_STORES = ["movements", "fixedExpenses", "fixedPayments", "products", "purchases", "spaces", "notes"] as const;
+const DATA_STORES = ["movements", "fixedExpenses", "fixedPayments", "products", "purchases", "spaces", "notes", "tickets", "mascotEvents"] as const;
 const STORE_NAMES = [...DATA_STORES, "meta"] as const;
 type StoreName = (typeof STORE_NAMES)[number];
 type SpacesRecord = { id: "main"; state: SpacesState };
@@ -21,6 +22,8 @@ type StoreMap = {
   fixedPayments: FixedPayment;
   products: MarketProduct;
   purchases: MarketPurchase;
+  tickets: ReceiptTicket;
+  mascotEvents: MascotEvent;
   spaces: SpacesRecord;
   notes: Note;
   meta: MetaRecord;
@@ -244,7 +247,7 @@ function parseBackupV1(backup: Record<string, unknown>): BackupPayload {
   const spaces = backup.spaces === undefined ? EMPTY_SPACES : parseSpaces(backup.spaces, true);
   const notes = backup.notes === undefined ? [] : parseNotes(backup.notes);
   const checklistIds = backup.checklistIds === undefined ? [] : parseChecklist(backup.checklistIds);
-  return { version: 3, exportedAt: String(backup.exportedAt || new Date().toISOString()), movements, fixedExpenses, fixedPayments, products, purchases, spaces, notes, checklistIds, financialSettings: defaultFinancialSettings(movements, fixedPayments) };
+  return { version: 5, exportedAt: String(backup.exportedAt || new Date().toISOString()), movements, fixedExpenses, fixedPayments, products, purchases, tickets: [], spaces, notes, checklistIds, financialSettings: defaultFinancialSettings(movements, fixedPayments), mascotProfile: { ...DEFAULT_MASCOT_PROFILE }, mascotEvents: [] };
 }
 
 function parseChecklist(raw: unknown): string[] {
@@ -252,17 +255,38 @@ function parseChecklist(raw: unknown): string[] {
   return [...new Set(raw as string[])];
 }
 
+const mascotStages: MascotStage[] = ["brote", "crecimiento", "equilibrio", "prosperidad"];
+
+function parseMascotData(backup: Record<string, unknown>): { mascotProfile: MascotProfile; mascotEvents: MascotEvent[] } {
+  const profile = backup.mascotProfile === undefined ? { ...DEFAULT_MASCOT_PROFILE } : asRecord(backup.mascotProfile, "mascotProfile");
+  const name = profile.name === undefined ? DEFAULT_MASCOT_PROFILE.name : requiredString(profile, "name", "mascotProfile").trim().slice(0, 20);
+  if (profile.onboardingComplete !== undefined && typeof profile.onboardingComplete !== "boolean") throw new Error("mascotProfile.onboardingComplete debe ser booleano.");
+  const celebratedStage = profile.celebratedStage ?? "brote";
+  if (!mascotStages.includes(celebratedStage as MascotStage)) throw new Error("mascotProfile.celebratedStage no es válido.");
+  const mascotEvents = backup.mascotEvents === undefined ? [] : recordArray(backup.mascotEvents, "mascotEvents").map((item, index) => {
+    const label = `mascotEvents[${index}]`;
+    const xp = finiteNumber(item, "xp", label, true);
+    if (xp < 0 || xp > 1000) throw new Error(`${label}.xp debe estar entre 0 y 1000.`);
+    requiredString(item, "reason", label); requiredString(item, "sourceId", label); requiredString(item, "occurredAt", label);
+    if (!["movement", "mission", "streak", "legacy"].includes(String(item.kind))) throw new Error(`${label}.kind no es válido.`);
+    optionalString(item, "activityDate", label);
+    if (item.activityDate !== undefined) isoDate(item, "activityDate", label);
+    return item as unknown as MascotEvent;
+  });
+  return { mascotProfile: { name: name || "Plantita", onboardingComplete: profile.onboardingComplete === true, celebratedStage: celebratedStage as MascotStage }, mascotEvents };
+}
+
 export function parseBackup(raw: unknown): BackupPayload {
   const backup = asRecord(raw, "El respaldo");
   if (backup.version === 1) return parseBackupV1(backup);
-  if (backup.version !== 2 && backup.version !== 3) throw new Error("La versión del respaldo no es compatible.");
+  if (backup.version !== 2 && backup.version !== 3 && backup.version !== 4 && backup.version !== 5) throw new Error("La versión del respaldo no es compatible.");
   requiredString(backup, "exportedAt", "El respaldo");
   const movements = recordArray(backup.movements, "movements").map((item, index) => {
     const label = `movements[${index}]`;
     isoDate(item, "date", label);
     if (item.type !== "Ingreso" && item.type !== "Gasto") throw new Error(`${label}.type no es válido.`);
     requiredString(item, "category", label); requiredString(item, "description", label);
-    finiteNumber(item, "amountCents", label, true); optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label); optionalString(item, "fixedPaymentId", label);
+    finiteNumber(item, "amountCents", label, true); optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label); optionalString(item, "ticketId", label); optionalString(item, "fixedPaymentId", label);
     if (item.generatedByFixedPayment !== undefined && typeof item.generatedByFixedPayment !== "boolean") throw new Error(`${label}.generatedByFixedPayment debe ser booleano.`);
     return item as unknown as Movement;
   });
@@ -319,13 +343,51 @@ export function parseBackup(raw: unknown): BackupPayload {
     isoDate(item, "date", label);
     return item as unknown as MarketPurchase;
   });
+  const tickets = backup.version >= 4 ? recordArray(backup.tickets, "tickets").map((item, index) => {
+    const label = `tickets[${index}]`;
+    requiredString(item, "storeName", label); isoDate(item, "date", label); requiredString(item, "movementId", label); requiredString(item, "createdAt", label);
+    finiteNumber(item, "totalCents", label, true);
+    if (item.subtotalCents !== undefined) finiteNumber(item, "subtotalCents", label, true);
+    if (item.taxCents !== undefined) finiteNumber(item, "taxCents", label, true);
+    optionalString(item, "rawText", label);
+    if (!Array.isArray(item.lines)) throw new Error(`${label}.lines debe ser una lista.`);
+    const lineIds = new Set<string>();
+    const lines = item.lines.map((rawLine, lineIndex) => {
+      const lineLabel = `${label}.lines[${lineIndex}]`;
+      const line = asRecord(rawLine, lineLabel);
+      const id = requiredString(line, "id", lineLabel);
+      if (lineIds.has(id)) throw new Error(`${lineLabel}.id está duplicado.`);
+      lineIds.add(id);
+      requiredString(line, "description", lineLabel);
+      const quantity = finiteNumber(line, "quantity", lineLabel);
+      if (quantity <= 0) throw new Error(`${lineLabel}.quantity debe ser mayor que cero.`);
+      finiteNumber(line, "unitPriceCents", lineLabel, true); finiteNumber(line, "totalCents", lineLabel, true);
+      requiredString(line, "category", lineLabel);
+      if (line.inventoryAction !== "ignore" && line.inventoryAction !== "update" && line.inventoryAction !== "create") throw new Error(`${lineLabel}.inventoryAction no es válido.`);
+      optionalString(line, "productId", lineLabel);
+      return line;
+    });
+    return { ...item, lines } as unknown as ReceiptTicket;
+  }) : [];
   const spaces = parseSpaces(backup.spaces, false);
   const notes = parseNotes(backup.notes);
   const checklistIds = parseChecklist(backup.checklistIds);
-  const financialSettings = backup.version === 3
+  const financialSettings = backup.version >= 3
     ? parseFinancialSettings(backup.financialSettings, defaultFinancialSettings(movements, fixedPayments))
     : defaultFinancialSettings(movements, fixedPayments);
-  return { version: 3, exportedAt: String(backup.exportedAt), movements, fixedExpenses, fixedPayments, products, purchases, spaces, notes, checklistIds, financialSettings };
+  const ticketIds = new Set(tickets.map((ticket) => ticket.id));
+  const ticketMovements = movements.filter((movement) => movement.ticketId);
+  for (const ticket of tickets) {
+    const movement = movementById.get(ticket.movementId);
+    if (!movement || movement.ticketId !== ticket.id || movement.type !== "Gasto" || movement.amountCents !== ticket.totalCents) {
+      throw new Error(`El ticket "${ticket.id}" no tiene un movimiento asociado válido.`);
+    }
+  }
+  for (const movement of ticketMovements) {
+    if (!movement.ticketId || !ticketIds.has(movement.ticketId)) throw new Error(`El movimiento "${movement.id}" apunta a un ticket inexistente.`);
+  }
+  const { mascotProfile, mascotEvents } = backup.version >= 5 ? parseMascotData(backup) : { mascotProfile: { ...DEFAULT_MASCOT_PROFILE }, mascotEvents: [] };
+  return { version: 5, exportedAt: String(backup.exportedAt), movements, fixedExpenses, fixedPayments, products, purchases, tickets, spaces, notes, checklistIds, financialSettings, mascotProfile, mascotEvents };
 }
 
 function readLegacyLocalStorage(): { spaces?: unknown; notes: Note[]; checklistIds: string[]; raw: Record<string, string | null> } {
@@ -388,12 +450,41 @@ function migrateV1(request: IDBOpenDBRequest, oldVersion: number): void {
         const fixedPaymentStore = transaction.objectStore("fixedPayments");
         for (const item of converted.fixedPayments) fixedPaymentStore.put(item);
         for (const note of converted.notes) transaction.objectStore("notes").put(note);
-        transaction.objectStore("meta").put({ key: "schemaVersion", value: 2 } satisfies MetaRecord);
+        const legacyProgress = legacyMascotProgress(converted.movements, converted.fixedPayments, converted.spaces);
+        if (legacyProgress) {
+          transaction.objectStore("mascotEvents").put(legacyProgress.event);
+          transaction.objectStore("meta").put({ key: "mascotProfile", value: legacyProgress.profile } satisfies MetaRecord);
+        }
+        transaction.objectStore("meta").put({ key: "schemaVersion", value: 4 } satisfies MetaRecord);
       } catch (error) {
         abort(error);
       }
     };
   }
+}
+
+function legacyMascotProgress(movements: Movement[], fixedPayments: FixedPayment[], spaces: SpacesState) {
+  const dates = [
+    ...movements.map((movement) => movement.date),
+    ...fixedPayments.map((payment) => payment.paidAt),
+    ...spaces.goals.flatMap((goal) => (goal.contributions ?? []).map((contribution) => contribution.date)),
+  ];
+  const activeWeeks = new Set(dates.map((raw) => {
+    const dateText = raw.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return null;
+    const date = new Date(`${dateText}T12:00:00`);
+    if (Number.isNaN(date.getTime())) return null;
+    date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  }).filter((week) => week !== null));
+  if (activeWeeks.size === 0) return null;
+  const xp = Math.min(450, Math.round(Math.min(activeWeeks.size, 12) * 37.5));
+  const stage: MascotStage = xp >= 450 ? "equilibrio" : xp >= 150 ? "crecimiento" : "brote";
+  const now = new Date().toISOString();
+  return {
+    event: { id: "legacy-weekly-progress-v1", xp, kind: "legacy", reason: "Progreso anterior conservado", sourceId: "migration-v1", occurredAt: now } satisfies MascotEvent,
+    profile: { ...DEFAULT_MASCOT_PROFILE, celebratedStage: stage } satisfies MascotProfile,
+  };
 }
 
 export function openDb(): Promise<IDBDatabase> {
@@ -405,6 +496,36 @@ export function openDb(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       try {
         if (event.oldVersion < 2) { upgraded = true; migrationFailure = null; migrateV1(request, event.oldVersion); }
+        else {
+          if (event.oldVersion < 3) request.result.createObjectStore("tickets", { keyPath: "id" });
+          if (event.oldVersion < 4) {
+            request.result.createObjectStore("mascotEvents", { keyPath: "id" });
+            const transaction = request.transaction;
+            if (!transaction) throw new Error("No se pudo iniciar la migración de la mascota.");
+            const movementRequest = transaction.objectStore("movements").getAll();
+            const paymentRequest = transaction.objectStore("fixedPayments").getAll();
+            const spacesRequest = transaction.objectStore("spaces").get("main");
+            let complete = 0;
+            let movementList: Movement[] = [];
+            let paymentList: FixedPayment[] = [];
+            let spacesState = EMPTY_SPACES;
+            const save = () => {
+              complete += 1;
+              if (complete !== 3) return;
+              const legacyProgress = legacyMascotProgress(movementList, paymentList, spacesState);
+              if (legacyProgress) {
+                transaction.objectStore("mascotEvents").put(legacyProgress.event);
+                transaction.objectStore("meta").put({ key: "mascotProfile", value: legacyProgress.profile } satisfies MetaRecord);
+              }
+              transaction.objectStore("meta").put({ key: "schemaVersion", value: 4 } satisfies MetaRecord);
+            };
+            movementRequest.onsuccess = () => { movementList = movementRequest.result as Movement[]; save(); };
+            paymentRequest.onsuccess = () => { paymentList = paymentRequest.result as FixedPayment[]; save(); };
+            spacesRequest.onsuccess = () => { spacesState = (spacesRequest.result as SpacesRecord | undefined)?.state ?? EMPTY_SPACES; save(); };
+            for (const sourceRequest of [movementRequest, paymentRequest, spacesRequest]) sourceRequest.onerror = () => { migrationFailure = sourceRequest.error ?? new Error("No se pudo migrar el progreso de la mascota."); try { transaction.abort(); } catch { /* Transaction already aborted. */ } };
+          }
+          upgraded = true;
+        }
       } catch (error) {
         request.transaction?.abort();
         if (!settled) { settled = true; reject(error instanceof Error ? error : new Error("Falló la migración del almacenamiento.")); }
@@ -482,6 +603,14 @@ export async function saveMarketPurchaseBatch(products: MarketProduct[], purchas
     for (const product of products) transaction.objectStore("products").put(product);
     for (const purchase of purchases) transaction.objectStore("purchases").put(purchase);
     for (const movement of movements) transaction.objectStore("movements").put(movement);
+  });
+}
+
+export async function saveReceiptTicket(ticket: ReceiptTicket, movement: Movement, products: MarketProduct[]): Promise<void> {
+  await runTransaction(["tickets", "movements", "products"], "readwrite", (transaction) => {
+    transaction.objectStore("tickets").add(ticket);
+    transaction.objectStore("movements").add(movement);
+    for (const product of products) transaction.objectStore("products").put(product);
   });
 }
 
@@ -641,11 +770,13 @@ function backupFromSnapshot(snapshot: StoreSnapshot): BackupPayload {
   const spaces = snapshot.spaces.find((record) => record.id === "main")?.state ?? EMPTY_SPACES;
   const checklistIds = snapshot.meta.find((record) => record.key === "marketChecklist")?.value ?? [];
   const financialSettings = snapshot.meta.find((record) => record.key === "financialSettings")?.value;
+  const mascotProfile = snapshot.meta.find((record) => record.key === "mascotProfile")?.value ?? { ...DEFAULT_MASCOT_PROFILE };
   return parseBackup({
-    version: 3, exportedAt: new Date().toISOString(), movements: snapshot.movements,
+    version: 5, exportedAt: new Date().toISOString(), movements: snapshot.movements,
     fixedExpenses: snapshot.fixedExpenses, fixedPayments: snapshot.fixedPayments,
-    products: snapshot.products, purchases: snapshot.purchases, spaces,
+    products: snapshot.products, purchases: snapshot.purchases, tickets: snapshot.tickets, spaces,
     notes: snapshot.notes, checklistIds, financialSettings: financialSettings ?? defaultFinancialSettings(snapshot.movements, snapshot.fixedPayments),
+    mascotProfile, mascotEvents: snapshot.mascotEvents,
   });
 }
 
@@ -667,12 +798,17 @@ async function replaceBackupAtomically(backup: BackupPayload): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const transaction = db.transaction([...STORE_NAMES], "readwrite");
+    const mascotStore = transaction.objectStore("mascotEvents");
+    const existingEventsRequest = mascotStore.getAll();
+    const profileStore = transaction.objectStore("meta");
+    const existingProfileRequest = profileStore.get("mascotProfile");
     for (const name of DATA_STORES) transaction.objectStore(name).clear();
     for (const item of backup.movements) transaction.objectStore("movements").put(item);
     for (const item of backup.fixedExpenses) transaction.objectStore("fixedExpenses").put(item);
     for (const item of backup.fixedPayments) transaction.objectStore("fixedPayments").put(item);
     for (const item of backup.products) transaction.objectStore("products").put(item);
     for (const item of backup.purchases) transaction.objectStore("purchases").put(item);
+    for (const item of backup.tickets) transaction.objectStore("tickets").put(item);
     const linkedPurchases = new Set(backup.movements.flatMap((item) => [item.purchaseId, item.id]));
     const movementStore = transaction.objectStore("movements");
     for (const purchase of backup.purchases) {
@@ -689,10 +825,102 @@ async function replaceBackupAtomically(backup: BackupPayload): Promise<void> {
     transaction.objectStore("meta").put({ key: "marketChecklist", value: backup.checklistIds } satisfies MetaRecord);
     transaction.objectStore("meta").put({ key: "marketPurchaseMovementsMigrated", value: true } satisfies MetaRecord);
     transaction.objectStore("meta").put({ key: "financialSettings", value: backup.financialSettings } satisfies MetaRecord);
+    let existingEvents: MascotEvent[] = [];
+    let existingProfile: MascotProfile = { ...DEFAULT_MASCOT_PROFILE };
+    let mascotRequestsRead = 0;
+    const writeMascotState = () => {
+      mascotRequestsRead += 1;
+      if (mascotRequestsRead !== 2) return;
+      const merged = new Map(existingEvents.map((event) => [event.id, event]));
+      for (const event of backup.mascotEvents) if (!merged.has(event.id)) merged.set(event.id, event);
+      for (const event of merged.values()) mascotStore.put(event);
+      const incoming = backup.mascotProfile.onboardingComplete ? backup.mascotProfile : existingProfile;
+      const order: MascotStage[] = ["brote", "crecimiento", "equilibrio", "prosperidad"];
+      const celebratedStage = order.indexOf(incoming.celebratedStage) > order.indexOf(existingProfile.celebratedStage)
+        ? incoming.celebratedStage : existingProfile.celebratedStage;
+      profileStore.put({ key: "mascotProfile", value: { ...incoming, celebratedStage } } satisfies MetaRecord);
+    };
+    existingEventsRequest.onsuccess = () => { existingEvents = existingEventsRequest.result as MascotEvent[]; writeMascotState(); };
+    existingProfileRequest.onsuccess = () => {
+      const record = existingProfileRequest.result as MetaRecord | undefined;
+      if (record?.value && typeof record.value === "object") existingProfile = { ...DEFAULT_MASCOT_PROFILE, ...record.value as Partial<MascotProfile> };
+      writeMascotState();
+    };
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo completar la restauración."));
     transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la restauración; los datos anteriores se mantienen."));
   });
+}
+
+export async function getMascotState(): Promise<{ profile: MascotProfile; events: MascotEvent[] }> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(["meta", "mascotEvents"], "readonly");
+    const profileRequest = transaction.objectStore("meta").get("mascotProfile");
+    const eventsRequest = transaction.objectStore("mascotEvents").getAll();
+    let profile: MascotProfile = { ...DEFAULT_MASCOT_PROFILE };
+    let events: MascotEvent[] = [];
+    profileRequest.onsuccess = () => {
+      const record = profileRequest.result as MetaRecord | undefined;
+      if (record?.value && typeof record.value === "object") profile = { ...DEFAULT_MASCOT_PROFILE, ...record.value as Partial<MascotProfile> };
+    };
+    eventsRequest.onsuccess = () => { events = eventsRequest.result as MascotEvent[]; };
+    transaction.oncomplete = () => resolve({ profile, events });
+    transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo leer el progreso de Plantita."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la lectura del progreso de Plantita."));
+  });
+}
+
+export async function saveMascotProfile(profile: MascotProfile): Promise<void> {
+  await putItem("meta", { key: "mascotProfile", value: profile });
+}
+
+export async function awardMascotMovement(movementId: string): Promise<void> {
+  const now = new Date();
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+  const week = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, "0")}-${String(monday.getDate()).padStart(2, "0")}`;
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("mascotEvents", "readwrite");
+    const store = transaction.objectStore("mascotEvents");
+    const request = store.getAll();
+    request.onsuccess = () => {
+      const events = request.result as MascotEvent[];
+      if (events.some((event) => event.id === `movement:${movementId}`)) return;
+      const todayXp = events.filter((event) => event.kind === "movement" && event.activityDate === date).reduce((sum, event) => sum + event.xp, 0);
+      const xp = todayXp < 25 ? 5 : 0;
+      store.add({ id: `movement:${movementId}`, xp, kind: "movement", reason: "Movimiento registrado", sourceId: movementId, occurredAt: now.toISOString(), activityDate: date } satisfies MascotEvent);
+      const activeDays = new Set(events.filter((event) => event.kind === "movement" && event.activityDate).flatMap((event) => {
+        const activity = new Date(`${event.activityDate}T12:00:00`);
+        activity.setDate(activity.getDate() - ((activity.getDay() + 6) % 7));
+        const key = `${activity.getFullYear()}-${String(activity.getMonth() + 1).padStart(2, "0")}-${String(activity.getDate()).padStart(2, "0")}`;
+        return key === week ? [event.activityDate!] : [];
+      }).concat(date));
+      if (activeDays.size >= 3 && !events.some((event) => event.id === `streak:${week}`)) store.add({ id: `streak:${week}`, xp: 10, kind: "streak", reason: "Racha de 3 días registrando", sourceId: week, occurredAt: now.toISOString() } satisfies MascotEvent);
+      if (activeDays.size >= 5 && !events.some((event) => event.id === `mission:five-days:${week}`)) store.add({ id: `mission:five-days:${week}`, xp: 20, kind: "mission", reason: "5 días con movimientos esta semana", sourceId: week, occurredAt: now.toISOString() } satisfies MascotEvent);
+    };
+    request.onerror = () => { try { transaction.abort(); } catch { /* Transaction already failed. */ } };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo guardar el progreso de Plantita."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la recompensa de Plantita."));
+  });
+  window.dispatchEvent(new Event("mascot-state-updated"));
+}
+
+export async function awardMascotMission(id: string, xp: number, reason: string, kind: "mission" | "streak" = "mission"): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("mascotEvents", "readwrite");
+    const store = transaction.objectStore("mascotEvents");
+    const request = store.get(id);
+    request.onsuccess = () => { if (!request.result) store.add({ id, xp, reason, kind, sourceId: id, occurredAt: new Date().toISOString() } satisfies MascotEvent); };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo guardar la misión de Plantita."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la misión de Plantita."));
+  });
+  window.dispatchEvent(new Event("mascot-state-updated"));
 }
 
 export async function importBackup(raw: unknown): Promise<void> {
