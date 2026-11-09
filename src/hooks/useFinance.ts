@@ -536,8 +536,8 @@ export function useFinance(selectedYm: string) {
     const now = new Date().toISOString();
     const byName = new Map(state.products.map((product) => [normalizeProductName(product.product), product]));
     const updates = new Map<string, MarketProduct>();
+    const purchases: MarketPurchase[] = [];
     const lines = input.lines.map((line) => {
-      if (line.inventoryAction === "ignore") return { ...line };
       const existing = (line.productId ? state.products.find((product) => product.id === line.productId) : undefined)
         ?? byName.get(normalizeProductName(line.description));
       const current = existing ? (updates.get(existing.id) ?? existing) : undefined;
@@ -564,7 +564,19 @@ export function useFinance(selectedYm: string) {
           };
       updates.set(productId, next);
       byName.set(normalizeProductName(next.product), next);
-      return { ...line, inventoryAction: current ? "update" as const : "create" as const, productId };
+      const savedLine = { ...line, inventoryAction: current ? "update" as const : "create" as const, productId };
+      purchases.push({
+        id: createId("buy"),
+        productId,
+        product: next.product,
+        totalCents: line.totalCents,
+        quantity: line.quantity,
+        unitPriceCents: line.unitPriceCents,
+        priceMode: "total",
+        date: input.date,
+        createdAt: now,
+      });
+      return savedLine;
     });
     const movementId = `ticket_${id}`;
     const ticket: ReceiptTicket = {
@@ -591,7 +603,7 @@ export function useFinance(selectedYm: string) {
       createdAt: now,
       updatedAt: now,
     };
-    await saveReceiptTicket(ticket, movement, [...updates.values()]);
+    await saveReceiptTicket(ticket, movement, [...updates.values()], purchases);
     try { await awardMascotMovement(movement.id); } catch { /* La recompensa no afecta el ticket. */ }
     await refresh();
   }, [refresh, state.products]);

@@ -159,17 +159,20 @@ describe("restauración de respaldos", () => {
     const product = { id: "ticket-product", product: "Leche", category: "Despensa" as const, lastUnitPriceCents: 200, lastPurchaseDate: "2026-01-01", currentQty: 3, minQty: 1, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
     const ticket = { id: "ticket-one", storeName: "Tienda", date: "2026-01-12", totalCents: 600, lines: [{ id: "line-one", description: "Leche", quantity: 2, unitPriceCents: 200, totalCents: 400, inventoryAction: "update" as const, productId: product.id, category: "Despensa" as const }], movementId: "ticket_ticket-one", createdAt: "2026-01-12T10:00:00.000Z" };
     const movement: Movement = { id: ticket.movementId, date: ticket.date, type: "Gasto", category: "Mercado", description: "Compra en Tienda", amountCents: ticket.totalCents, source: "ticket", ticketId: ticket.id, createdAt: ticket.createdAt, updatedAt: ticket.createdAt };
-    await saveReceiptTicket(ticket, movement, [{ ...product, currentQty: 5 }]);
+    const purchase = { id: "ticket-purchase-one", productId: product.id, product: product.product, totalCents: 400, quantity: 2, unitPriceCents: 200, priceMode: "total" as const, date: ticket.date, createdAt: ticket.createdAt };
+    await saveReceiptTicket(ticket, movement, [{ ...product, currentQty: 5 }], [purchase]);
     expect(await getAll("tickets")).toHaveLength(1);
     expect(await getAll("movements")).toEqual([movement]);
     expect(await getAll("products")).toMatchObject([{ id: product.id, currentQty: 5 }]);
+    expect(await getAll("purchases")).toEqual([purchase]);
     const exported = await exportBackup();
     expect(exported.tickets).toEqual([ticket]);
     expect(exported.movements).toContainEqual(movement);
     await importBackup(exported);
     expect(await getAll("tickets")).toEqual([ticket]);
 
-    await expect(saveReceiptTicket(ticket, movement, [{ ...product, currentQty: 9 }])).rejects.toBeTruthy();
+    await expect(saveReceiptTicket(ticket, movement, [{ ...product, currentQty: 9 }], [{ ...purchase, id: "ticket-purchase-duplicate" }])).rejects.toBeTruthy();
     expect(await getAll("products")).toMatchObject([{ id: product.id, currentQty: 5 }]);
+    expect(await getAll("purchases")).toEqual([purchase]);
   });
 });

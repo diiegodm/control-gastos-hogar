@@ -606,11 +606,12 @@ export async function saveMarketPurchaseBatch(products: MarketProduct[], purchas
   });
 }
 
-export async function saveReceiptTicket(ticket: ReceiptTicket, movement: Movement, products: MarketProduct[]): Promise<void> {
-  await runTransaction(["tickets", "movements", "products"], "readwrite", (transaction) => {
+export async function saveReceiptTicket(ticket: ReceiptTicket, movement: Movement, products: MarketProduct[], purchases: MarketPurchase[]): Promise<void> {
+  await runTransaction(["tickets", "movements", "products", "purchases"], "readwrite", (transaction) => {
     transaction.objectStore("tickets").add(ticket);
     transaction.objectStore("movements").add(movement);
     for (const product of products) transaction.objectStore("products").put(product);
+    for (const purchase of purchases) transaction.objectStore("purchases").add(purchase);
   });
 }
 

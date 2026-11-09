@@ -20,6 +20,10 @@ type Props = {
   finance: Finance;
 };
 
+function normalizeProductName(name: string): string {
+  return name.trim().toLocaleLowerCase("es-ES").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+}
+
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: "comprar", label: "Comprar" },
   { id: "inventario", label: "Inventario" },
@@ -46,9 +50,19 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
       const { recognizeReceipt } = await import("../lib/receiptOcr");
       const text = await recognizeReceipt(file, setProgress);
       setRawText(text);
-      setDraft(parseReceiptText(text));
+      const parsed = parseReceiptText(text);
+      setDraft({
+        ...parsed,
+        lines: parsed.lines.map((line) => {
+          const product = finance.products.find((item) => normalizeProductName(item.product) === normalizeProductName(line.description));
+          return product
+            ? { ...line, inventoryAction: "update", productId: product.id, category: product.category }
+            : { ...line, inventoryAction: "create" };
+        }),
+      });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "No se pudo leer la imagen. Puedes volver a intentarlo.");
+      const detail = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
+      setError(detail ? `No se pudo leer la imagen: ${detail}` : "No se pudo leer la imagen. Puedes volver a intentarlo.");
     } finally {
       setScanning(false);
       setProgress(null);
@@ -142,7 +156,7 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
               <label className="grid gap-1 text-sm font-bold text-slate-600">Subtotal (opcional)<input className="input" name="receipt-subtotal" inputMode="decimal" defaultValue={draft.subtotalCents === undefined ? "" : fromCents(draft.subtotalCents)} /></label>
               <label className="grid gap-1 text-sm font-bold text-slate-600">Impuestos (opcional)<input className="input" name="receipt-tax" inputMode="decimal" defaultValue={draft.taxCents === undefined ? "" : fromCents(draft.taxCents)} /></label>
             </div>
-            <div className="flex items-center justify-between"><h3 className="font-black text-slate-900">Productos detectados</h3><button className="btn-secondary" type="button" onClick={() => setDraft((current) => current ? { ...current, lines: [...current.lines, { id: `manual_${crypto.randomUUID()}`, description: "", quantity: 1, unitPriceCents: 0, totalCents: 0, inventoryAction: "ignore", category: "Despensa" }] } : current)}>+ Añadir línea</button></div>
+            <div className="flex items-center justify-between"><h3 className="font-black text-slate-900">Productos detectados</h3><button className="btn-secondary" type="button" onClick={() => setDraft((current) => current ? { ...current, lines: [...current.lines, { id: `manual_${crypto.randomUUID()}`, description: "", quantity: 1, unitPriceCents: 0, totalCents: 0, inventoryAction: "create", category: "Despensa" }] } : current)}>+ Añadir línea</button></div>
             {draft.lines.length ? draft.lines.map((line, index) => (
               <div key={line.id} className="space-y-2 rounded-xl border border-slate-200 p-3">
                 <div className="grid gap-2 sm:grid-cols-[1fr_8rem_8rem_auto]">
@@ -154,10 +168,10 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
                 <div className="grid gap-2 sm:grid-cols-2">
                   <select className="input" aria-label="Acción de inventario" value={line.inventoryAction === "update" ? `update:${line.productId}` : line.inventoryAction} onChange={(event) => {
                     const value = event.target.value;
-                    if (value === "ignore" || value === "create") updateLine(index, { inventoryAction: value, productId: undefined });
+                    if (value === "create") updateLine(index, { inventoryAction: value, productId: undefined });
                     else { const product = finance.products.find((item) => item.id === value.slice(7)); if (product) updateLine(index, { inventoryAction: "update", productId: product.id, category: product.category }); }
                   }}>
-                    <option value="ignore">No modificar inventario</option><option value="create">Crear producto en inventario</option>
+                    <option value="create">Crear producto en inventario</option>
                     {finance.products.map((product) => <option key={product.id} value={`update:${product.id}`}>Sumar a {product.product}</option>)}
                   </select>
                   <select className="input" aria-label="Categoría de producto" value={line.category} onChange={(event) => updateLine(index, { category: event.target.value as ProductCategory })}>

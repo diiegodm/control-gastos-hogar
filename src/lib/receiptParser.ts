@@ -57,20 +57,21 @@ export function parseReceiptText(text: string, today = new Date().toISOString().
 
   for (const [index, line] of lines.entries()) {
     if (ignored.test(line) || !/\d/.test(line)) continue;
+    const euroAmounts = [...line.matchAll(/\d+(?:[.,]\d{1,2})?\s*€/g)];
     const numbers = [...line.matchAll(/\d+[.,]?\d*/g)];
-    if (!numbers.length) continue;
-    const last = numbers[numbers.length - 1];
+    const last = euroAmounts[euroAmounts.length - 1] ?? numbers[numbers.length - 1];
+    if (!last || last.index === undefined) continue;
     const total = amountCents(last[0]);
     if (total === undefined || total <= 0) continue;
     const beforeTotal = line.slice(0, last.index).replace(/[€*\s]+$/g, "").trim();
+    const unitMatches = [...beforeTotal.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(ud(?:s)?|unidades?|kg)\b/gi)];
     const quantityMatch = beforeTotal.match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*[x×]\s*/i);
-    const quantity = quantityMatch ? Number(quantityMatch[1].replace(",", ".")) : 1;
+    const unitMatch = unitMatches[unitMatches.length - 1];
+    const quantityText = unitMatch?.[1] ?? quantityMatch?.[1];
+    const quantity = quantityText ? Number(quantityText.replace(",", ".")) : 1;
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
-    let description = quantityMatch
-      ? quantityMatch.index === 0
-        ? beforeTotal.slice(quantityMatch[0].length).replace(/\s+\d+[.,]\d+\s*$/, "").trim()
-        : beforeTotal.slice(0, quantityMatch.index).trim()
-      : beforeTotal;
+    const descriptionEnd = unitMatch?.index ?? quantityMatch?.index;
+    const description = descriptionEnd === undefined ? beforeTotal : beforeTotal.slice(0, descriptionEnd).trim();
     if (description.length < 2 || !/[a-záéíóúñ]/i.test(description)) continue;
     parsedItems.push({
       id: `line_${index}`,
@@ -78,7 +79,7 @@ export function parseReceiptText(text: string, today = new Date().toISOString().
       quantity,
       unitPriceCents: Math.round(total / quantity),
       totalCents: total,
-      inventoryAction: "ignore",
+      inventoryAction: "create",
       category: "Despensa" as ProductCategory,
     });
   }
