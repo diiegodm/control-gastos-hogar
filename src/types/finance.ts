@@ -31,8 +31,9 @@ export type Movement = {
   type: MovementType;
   category: MovementCategory;
   budgetSpaceId?: string;
-  source?: "market";
+  source?: "market" | "ticket";
   purchaseId?: string;
+  ticketId?: string;
   fixedPaymentId?: string;
   generatedByFixedPayment?: boolean;
   description: string;
@@ -91,18 +92,45 @@ export type MarketPurchase = {
   createdAt: string;
 };
 
+export type ReceiptLine = {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  totalCents: number;
+  inventoryAction: "ignore" | "update" | "create";
+  productId?: string;
+  category: ProductCategory;
+};
+
+export type ReceiptTicket = {
+  id: string;
+  storeName: string;
+  date: string;
+  subtotalCents?: number;
+  taxCents?: number;
+  totalCents: number;
+  lines: ReceiptLine[];
+  rawText?: string;
+  movementId: string;
+  createdAt: string;
+};
+
 export type BackupPayload = {
-  version: 3;
+  version: 5;
   exportedAt: string;
   movements: Movement[];
   fixedExpenses: FixedExpense[];
   fixedPayments: FixedPayment[];
   products: MarketProduct[];
   purchases: MarketPurchase[];
+  tickets: ReceiptTicket[];
   spaces: import("./spaces").SpacesState;
   notes: import("./notes").Note[];
   checklistIds: string[];
   financialSettings: FinancialSettings;
+  mascotProfile: import("./mascot").MascotProfile;
+  mascotEvents: import("./mascot").MascotEvent[];
 };
 
 export const movementCategories: MovementCategory[] = [

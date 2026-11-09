@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { getItem, putItem } from "../lib/db";
 import type { BudgetSpace, GoalSpace, SpacesState } from "../types/spaces";
 import { movementCategories } from "../types/finance";
+import { awardMascotMission } from "../lib/db";
+import { currentMonthKey } from "../lib/mascot";
 
 const EMPTY: SpacesState = { budgets: [], goals: [], budgetCategories: [], goalCategories: [], movementCategories: [] };
 
@@ -51,6 +53,7 @@ export function useSpaces() {
         ? current.budgets.map((item) => item.id === existingId ? { ...item, ...input } : item)
         : [{ ...input, id: id(), archived: false }, ...current.budgets],
     }));
+    void awardMascotMission(`mission:budget-created:${currentMonthKey()}`, 25, "Presupuesto mensual organizado").catch(() => undefined);
   }
 
   function addMovementCategory(value: string) {
@@ -77,6 +80,10 @@ export function useSpaces() {
 
   function contribute(goalId: string, amountCents: number) {
     if (!Number.isInteger(amountCents) || amountCents <= 0) return;
+    const goal = state.goals.find((item) => item.id === goalId);
+    if (goal && goal.savedCents < goal.targetCents && goal.savedCents + amountCents >= goal.targetCents) {
+      void awardMascotMission(`mission:goal-reached:${currentMonthKey()}`, 60, "Objetivo de ahorro alcanzado").catch(() => undefined);
+    }
     setState((current) => ({ ...current, goals: current.goals.map((goal) => goal.id === goalId ? { ...goal, savedCents: goal.savedCents + amountCents, contributions: [...(goal.contributions ?? []), { amountCents, date: new Date().toISOString() }] } : goal) }));
   }
 
