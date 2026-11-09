@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BottomNav, type Section } from "./components/BottomNav";
 import { Dashboard } from "./views/Dashboard";
 import { Spaces } from "./views/Spaces";
@@ -12,6 +12,14 @@ import { useLocalAuth } from "./hooks/useLocalAuth";
 import { LocalAccess } from "./components/LocalAccess";
 import { currentYearMonth, monthOption } from "./lib/date";
 import { parseBackup } from "./lib/db";
+import { FloatingMascot } from "./components/FloatingMascot";
+import { MascotPanel } from "./components/MascotPanel";
+import { useMascot } from "./hooks/useMascot";
+import { MASCOT_LEVELS } from "./types/mascot";
+import { buildMascotAdvice } from "./lib/mascotAdvice";
+import { distinctActivityDays } from "./lib/mascot";
+import { previousMonthKey } from "./lib/mascot";
+import { monthSummary } from "./lib/summary";
 
 const initialMonth = currentYearMonth();
 
@@ -23,8 +31,53 @@ export default function App() {
   const finance = useFinance(selectedYm);
   const notes = useNotes();
   const spaces = useSpaces();
+  const lastMonth = previousMonthKey();
+  const hasLastMonthData = finance.movements.some((movement) => movement.date.startsWith(lastMonth))
+    || finance.fixedPayments.some((payment) => payment.month === lastMonth);
+  const mascot = useMascot(finance.fixedExpenses.length, finance.movements.length, hasLastMonthData);
   const auth = useLocalAuth();
   const importRef = useRef<HTMLInputElement | null>(null);
+  const [mascotOpen, setMascotOpen] = useState(false);
+  const [mascotMinimized, setMascotMinimized] = useState(false);
+  const [mascotHidden, setMascotHidden] = useState(false);
+  const [celebration, setCelebration] = useState<string>();
+
+  useEffect(() => {
+    if (!mascot.loading && !mascot.profile.onboardingComplete) setMascotOpen(true);
+  }, [mascot.loading, mascot.profile.onboardingComplete]);
+
+  useEffect(() => {
+    if (mascot.loading || !mascot.profile.onboardingComplete) return;
+    const stageIndex = MASCOT_LEVELS.findIndex((item) => item.stage === mascot.progress.stage);
+    const celebratedIndex = MASCOT_LEVELS.findIndex((item) => item.stage === mascot.profile.celebratedStage);
+    if (stageIndex > celebratedIndex) {
+      const level = MASCOT_LEVELS[stageIndex];
+      setCelebration(level.label);
+      setMascotOpen(true);
+      void mascot.markCelebratedStage(level.stage);
+    }
+  }, [mascot.loading, mascot.profile, mascot.progress.stage, mascot.markCelebratedStage]);
+
+  const advice = useMemo(() => buildMascotAdvice({
+    budgets: spaces.budgets,
+    goals: spaces.goals,
+    categorySpending: finance.summary.categoryData,
+    upcomingPayments: finance.dashboard.upcomingPayments,
+  }), [finance.dashboard.upcomingPayments, finance.summary.categoryData, spaces.budgets, spaces.goals]);
+  const weeklyActivityDays = distinctActivityDays(mascot.events, mascot.week).length;
+  const weekStart = new Date(`${mascot.week}T00:00:00`);
+  const weekMovements = finance.movements.filter((movement) => {
+    const recorded = new Date(movement.createdAt);
+    return recorded >= weekStart && recorded < new Date(weekStart.getTime() + 7 * 86400000);
+  });
+  const weeklyIncomeCents = weekMovements.filter((item) => item.type === "Ingreso").reduce((sum, item) => sum + item.amountCents, 0);
+  const weeklyExpenseCents = weekMovements.filter((item) => item.type === "Gasto").reduce((sum, item) => sum + item.amountCents, 0);
+  const lastMonthSummary = useMemo(() => monthSummary(finance, mascot.previousMonth), [finance, mascot.previousMonth]);
+
+  function changeSection(next: Section) {
+    setSection(next);
+    setMascotHidden(false);
+  }
 
   async function importFile(file: File | undefined) {
     if (!file) return;
@@ -91,7 +144,7 @@ export default function App() {
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => setSection("dashboard")}
+            onClick={() => changeSection("dashboard")}
             className="text-left"
             aria-label="Ir al Dashboard"
           >
@@ -117,7 +170,7 @@ export default function App() {
         {[spaces.storageError, notes.storageError].filter((message): message is string => Boolean(message)).map((message) => <p key={message} role="alert" className="mb-4 rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm font-semibold text-amber-200">{message}</p>)}
         <div key={section} className="page-transition">
           {section === "dashboard" ? (
-            <Dashboard name={auth.name} selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => setSection("spaces")} />
+            <Dashboard name={auth.name} selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => changeSection("spaces")} />
           ) : null}
           {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
           {section === "analysis" ? <Analysis finance={finance} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
@@ -125,8 +178,45 @@ export default function App() {
         </div>
       </main>
 
-      <BottomNav active={section} onChange={setSection} onAdd={() => setShowQuickMovement(true)} />
+      <BottomNav active={section} onChange={changeSection} onAdd={() => setShowQuickMovement(true)} />
       {showQuickMovement ? <QuickMovement finance={finance} customCategories={[...spaces.budgetCategories, ...spaces.movementCategories]} budgetSpaces={spaces.budgets} onCreateCategory={spaces.addMovementCategory} onClose={() => setShowQuickMovement(false)} /> : null}
+      {mascot.profile.onboardingComplete && !mascotHidden ? <FloatingMascot
+        name={mascot.profile.name}
+        progress={mascot.progress}
+        minimized={mascotMinimized}
+        onOpen={() => { setCelebration(undefined); setMascotOpen(true); }}
+        onToggleMinimized={() => setMascotMinimized((value) => !value)}
+      /> : null}
+      {mascotOpen ? <MascotPanel
+        profile={mascot.profile}
+        progress={mascot.progress}
+        rewards={mascot.rewards}
+        completed={mascot.completed}
+        week={mascot.week}
+        month={mascot.month}
+        weeklyIncomeCents={weeklyIncomeCents}
+        weeklyExpenseCents={weeklyExpenseCents}
+        weeklyActivityDays={weeklyActivityDays}
+        fixedConcepts={finance.fixedExpenses.map((expense) => expense.concept)}
+        weeklyReviewAvailable={mascot.weeklyReviewAvailable}
+        fixedReviewAvailable={mascot.fixedReviewAvailable}
+        monthlyReviewAvailable={mascot.monthlyReviewAvailable}
+        monthlyReviewId={mascot.monthlyReviewId}
+        previousMonth={mascot.previousMonth}
+        monthlyIncomeCents={Math.round(lastMonthSummary.income * 100)}
+        monthlyExpenseCents={Math.round((lastMonthSummary.fixedExpenses + lastMonthSummary.variableExpenses) * 100)}
+        advice={advice}
+        adviceMonth={`${monthOption(selectedYm).label} ${monthOption(selectedYm).year}`}
+        onFinish={mascot.finishOnboarding}
+        onRename={mascot.rename}
+        onReviewWeekly={mascot.reviewWeeklySummary}
+        onReviewFixed={mascot.reviewFixedExpenses}
+        onReviewMonthly={mascot.reviewMonthlySummary}
+        onMinimize={() => { setMascotMinimized(true); setMascotOpen(false); }}
+        onHide={() => { setMascotOpen(false); setMascotHidden(true); }}
+        onClose={() => setMascotOpen(false)}
+        celebration={celebration}
+      /> : null}
     </div>
   );
 }

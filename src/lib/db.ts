@@ -1,6 +1,6 @@
 import type { BackupPayload, FinancialSettings, FixedExpense, FixedPayment, MarketProduct, MarketPurchase, Movement, ReceiptTicket } from "../types/finance";
 import type { Note } from "../types/notes";
-import { DEFAULT_MASCOT_PROFILE, type MascotEvent, type MascotProfile, type MascotStage } from "../types/mascot";
+import { DEFAULT_MASCOT_PROFILE, MASCOT_REWARDS, type MascotEvent, type MascotProfile, type MascotStage } from "../types/mascot";
 import type { BudgetSpace, GoalSpace, SpacesState } from "../types/spaces";
 import { todayISO } from "./date";
 import { toCents } from "./money";
@@ -890,7 +890,7 @@ export async function awardMascotMovement(movementId: string): Promise<void> {
       const events = request.result as MascotEvent[];
       if (events.some((event) => event.id === `movement:${movementId}`)) return;
       const todayXp = events.filter((event) => event.kind === "movement" && event.activityDate === date).reduce((sum, event) => sum + event.xp, 0);
-      const xp = todayXp < 25 ? 5 : 0;
+      const xp = todayXp < MASCOT_REWARDS.dailyMovementCap ? MASCOT_REWARDS.movement : 0;
       store.add({ id: `movement:${movementId}`, xp, kind: "movement", reason: "Movimiento registrado", sourceId: movementId, occurredAt: now.toISOString(), activityDate: date } satisfies MascotEvent);
       const activeDays = new Set(events.filter((event) => event.kind === "movement" && event.activityDate).flatMap((event) => {
         const activity = new Date(`${event.activityDate}T12:00:00`);
@@ -898,8 +898,8 @@ export async function awardMascotMovement(movementId: string): Promise<void> {
         const key = `${activity.getFullYear()}-${String(activity.getMonth() + 1).padStart(2, "0")}-${String(activity.getDate()).padStart(2, "0")}`;
         return key === week ? [event.activityDate!] : [];
       }).concat(date));
-      if (activeDays.size >= 3 && !events.some((event) => event.id === `streak:${week}`)) store.add({ id: `streak:${week}`, xp: 10, kind: "streak", reason: "Racha de 3 días registrando", sourceId: week, occurredAt: now.toISOString() } satisfies MascotEvent);
-      if (activeDays.size >= 5 && !events.some((event) => event.id === `mission:five-days:${week}`)) store.add({ id: `mission:five-days:${week}`, xp: 20, kind: "mission", reason: "5 días con movimientos esta semana", sourceId: week, occurredAt: now.toISOString() } satisfies MascotEvent);
+      if (activeDays.size >= 3 && !events.some((event) => event.id === `streak:${week}`)) store.add({ id: `streak:${week}`, xp: MASCOT_REWARDS.threeDayStreak, kind: "streak", reason: "Racha de 3 días registrando", sourceId: week, occurredAt: now.toISOString() } satisfies MascotEvent);
+      if (activeDays.size >= 5 && !events.some((event) => event.id === `mission:five-days:${week}`)) store.add({ id: `mission:five-days:${week}`, xp: MASCOT_REWARDS.fiveActiveDays, kind: "mission", reason: "5 días con movimientos esta semana", sourceId: week, occurredAt: now.toISOString() } satisfies MascotEvent);
     };
     request.onerror = () => { try { transaction.abort(); } catch { /* Transaction already failed. */ } };
     transaction.oncomplete = () => resolve();

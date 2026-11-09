@@ -42,6 +42,10 @@ export function currentMonthKey(date = new Date()): string {
   return localDateKey(date).slice(0, 7);
 }
 
+export function previousMonthKey(date = new Date()): string {
+  return currentMonthKey(new Date(date.getFullYear(), date.getMonth() - 1, 1));
+}
+
 export function distinctActivityDays(events: MascotEvent[], week: string): string[] {
   return [...new Set(events.filter((event) => event.kind === "movement" && event.activityDate && weekKey(new Date(`${event.activityDate}T12:00:00`)) === week).map((event) => event.activityDate!))];
 }

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   Cell,
   Pie,
@@ -7,16 +6,10 @@ import {
   Tooltip,
 } from "recharts";
 import { Card, StatCard } from "../components/Card";
-import { FinanceMascot } from "../components/FinanceMascot";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
 import { formatDate, monthOption } from "../lib/date";
 import { currency, fromCents } from "../lib/money";
-import { distinctActivityDays } from "../lib/mascot";
-import { useMascot } from "../hooks/useMascot";
-import { MascotPanel } from "../components/MascotPanel";
-import { MASCOT_LEVELS } from "../types/mascot";
-import { saveMascotProfile } from "../lib/db";
 import type { useFinance } from "../hooks/useFinance";
 import type { useSpaces } from "../hooks/useSpaces";
 
@@ -45,31 +38,6 @@ export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, on
   const selected = monthOption(selectedYm);
   const totalExpenses = dashboard.fixedExpenses + dashboard.variableExpenses;
   const greeting = name.trim() ? `Hola, ${name.trim()} 👋` : "Hola 👋";
-  const mascot = useMascot(finance.fixedExpenses.length, finance.movements.length);
-  const [showMascot, setShowMascot] = useState(false);
-  const [celebration, setCelebration] = useState<string>();
-  useEffect(() => {
-    if (!mascot.loading && !mascot.profile.onboardingComplete) setShowMascot(true);
-  }, [mascot.loading, mascot.profile.onboardingComplete]);
-  useEffect(() => {
-    if (mascot.loading || !mascot.profile.onboardingComplete) return;
-    const currentIndex = MASCOT_LEVELS.findIndex((item) => item.stage === mascot.progress.stage);
-    const celebratedIndex = MASCOT_LEVELS.findIndex((item) => item.stage === mascot.profile.celebratedStage);
-    if (currentIndex > celebratedIndex) {
-      const level = MASCOT_LEVELS[currentIndex];
-      setCelebration(level.label);
-      setShowMascot(true);
-      void saveMascotProfile({ ...mascot.profile, celebratedStage: level.stage });
-    }
-  }, [mascot.loading, mascot.profile, mascot.progress.stage]);
-  const weeklyDays = distinctActivityDays(mascot.events, mascot.week).length;
-  const weekStart = new Date(`${mascot.week}T00:00:00`);
-  const weekMovements = finance.movements.filter((movement) => {
-    const recorded = new Date(movement.createdAt);
-    return recorded >= weekStart && recorded < new Date(weekStart.getTime() + 7 * 86400000);
-  });
-  const weeklyIncomeCents = weekMovements.filter((item) => item.type === "Ingreso").reduce((sum, item) => sum + item.amountCents, 0);
-  const weeklyExpenseCents = weekMovements.filter((item) => item.type === "Gasto").reduce((sum, item) => sum + item.amountCents, 0);
 
   return (
     <div className="space-y-5 pb-2">
@@ -78,7 +46,6 @@ export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, on
           <p className="text-sm font-semibold text-slate-400">{greeting}</p>
           <h1 className="mt-1 text-2xl font-black text-slate-50">Tu hogar este mes</h1>
         </div>
-        <FinanceMascot name={mascot.profile.name} progress={mascot.progress} onClick={() => { setCelebration(undefined); setShowMascot(true); }} />
       </div>
 
       <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto]">
@@ -232,26 +199,6 @@ export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, on
         </div>
       </Card>
 
-      {showMascot ? <MascotPanel
-        profile={mascot.profile}
-        progress={mascot.progress}
-        rewards={mascot.rewards}
-        completed={mascot.completed}
-        week={mascot.week}
-        month={mascot.month}
-        weeklyIncomeCents={weeklyIncomeCents}
-        weeklyExpenseCents={weeklyExpenseCents}
-        weeklyActivityDays={weeklyDays}
-        fixedConcepts={finance.fixedExpenses.map((expense) => expense.concept)}
-        weeklyReviewAvailable={mascot.weeklyReviewAvailable}
-        fixedReviewAvailable={mascot.fixedReviewAvailable}
-        onFinish={mascot.finishOnboarding}
-        onRename={mascot.rename}
-        onReviewWeekly={mascot.reviewWeeklySummary}
-        onReviewFixed={mascot.reviewFixedExpenses}
-        onClose={() => setShowMascot(false)}
-        celebration={celebration}
-      /> : null}
     </div>
   );
 }

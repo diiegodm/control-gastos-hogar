@@ -22,6 +22,19 @@ export const DEFAULT_MASCOT_PROFILE: MascotProfile = {
   celebratedStage: "brote",
 };
 
+export const MASCOT_REWARDS = {
+  movement: 5,
+  dailyMovementCap: 25,
+  threeDayStreak: 10,
+  fiveActiveDays: 20,
+  weeklySummaryReview: 15,
+  weeklyFixedReview: 20,
+  monthlySummaryReview: 20,
+  monthlyBudgetSetup: 25,
+  monthlyGoalReached: 60,
+  monthlyFixedSetup: 20,
+} as const;
+
 export const MASCOT_LEVELS = [
   { stage: "brote", label: "Brote", minXp: 0, image: "/mascot/sprout.png" },
   { stage: "crecimiento", label: "Crecimiento", minXp: 150, image: "/mascot/leaf.png" },
