@@ -73,6 +73,7 @@ export function Notes({ notes }: { notes: NotesModel }) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Note | undefined>();
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const filteredNotes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -99,13 +100,15 @@ export function Notes({ notes }: { notes: NotesModel }) {
     setIsFormOpen(false);
   }
 
-  function saveNote(input: NoteInput) {
-    if (editing) {
-      notes.updateNote(editing.id, input);
-    } else {
-      notes.addNote(input);
+  async function saveNote(input: NoteInput) {
+    setSaveError("");
+    try {
+      if (editing) await notes.updateNote(editing.id, input);
+      else await notes.addNote(input);
+      closeForm();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "No se pudo guardar la nota.");
     }
-    closeForm();
   }
 
   function removeNote(note: Note) {
@@ -135,6 +138,7 @@ export function Notes({ notes }: { notes: NotesModel }) {
           Nueva nota
         </button>
       </div>
+      {saveError ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">{saveError}</p> : null}
 
       {filteredNotes.length > 0 ? (
         <div className="space-y-3">

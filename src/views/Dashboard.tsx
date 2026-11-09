@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Cell,
   Pie,
@@ -6,10 +7,16 @@ import {
   Tooltip,
 } from "recharts";
 import { Card, StatCard } from "../components/Card";
+import { FinanceMascot } from "../components/FinanceMascot";
 import { EmptyState } from "../components/EmptyState";
 import { MonthSelector } from "../components/MonthSelector";
-import { formatDate, months } from "../lib/date";
-import { currency } from "../lib/money";
+import { formatDate, monthOption } from "../lib/date";
+import { currency, fromCents } from "../lib/money";
+import { distinctActivityDays } from "../lib/mascot";
+import { useMascot } from "../hooks/useMascot";
+import { MascotPanel } from "../components/MascotPanel";
+import { MASCOT_LEVELS } from "../types/mascot";
+import { saveMascotProfile } from "../lib/db";
 import type { useFinance } from "../hooks/useFinance";
 import type { useSpaces } from "../hooks/useSpaces";
 
@@ -17,8 +24,9 @@ type Finance = ReturnType<typeof useFinance>;
 type SpacesModel = ReturnType<typeof useSpaces>;
 
 type Props = {
-  selectedMonth: number;
-  onMonthChange: (month: number) => void;
+  name: string;
+  selectedYm: string;
+  onMonthChange: (ym: string) => void;
   finance: Finance;
   spaces: SpacesModel;
   onOpenSpaces: () => void;
@@ -32,40 +40,70 @@ const alertClasses = {
   red: "bg-rose-50 text-rose-700 ring-rose-100",
 };
 
-export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpenSpaces }: Props) {
+export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, onOpenSpaces }: Props) {
   const { dashboard } = finance;
-  const selected = months.find((month) => month.value === selectedMonth);
+  const selected = monthOption(selectedYm);
   const totalExpenses = dashboard.fixedExpenses + dashboard.variableExpenses;
+  const greeting = name.trim() ? `Hola, ${name.trim()} 👋` : "Hola 👋";
+  const mascot = useMascot(finance.fixedExpenses.length, finance.movements.length);
+  const [showMascot, setShowMascot] = useState(false);
+  const [celebration, setCelebration] = useState<string>();
+  useEffect(() => {
+    if (!mascot.loading && !mascot.profile.onboardingComplete) setShowMascot(true);
+  }, [mascot.loading, mascot.profile.onboardingComplete]);
+  useEffect(() => {
+    if (mascot.loading || !mascot.profile.onboardingComplete) return;
+    const currentIndex = MASCOT_LEVELS.findIndex((item) => item.stage === mascot.progress.stage);
+    const celebratedIndex = MASCOT_LEVELS.findIndex((item) => item.stage === mascot.profile.celebratedStage);
+    if (currentIndex > celebratedIndex) {
+      const level = MASCOT_LEVELS[currentIndex];
+      setCelebration(level.label);
+      setShowMascot(true);
+      void saveMascotProfile({ ...mascot.profile, celebratedStage: level.stage });
+    }
+  }, [mascot.loading, mascot.profile, mascot.progress.stage]);
+  const weeklyDays = distinctActivityDays(mascot.events, mascot.week).length;
+  const weekStart = new Date(`${mascot.week}T00:00:00`);
+  const weekMovements = finance.movements.filter((movement) => {
+    const recorded = new Date(movement.createdAt);
+    return recorded >= weekStart && recorded < new Date(weekStart.getTime() + 7 * 86400000);
+  });
+  const weeklyIncomeCents = weekMovements.filter((item) => item.type === "Ingreso").reduce((sum, item) => sum + item.amountCents, 0);
+  const weeklyExpenseCents = weekMovements.filter((item) => item.type === "Gasto").reduce((sum, item) => sum + item.amountCents, 0);
 
   return (
     <div className="space-y-5 pb-2">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold text-slate-400">Hola, Diego 👋</p>
+          <p className="text-sm font-semibold text-slate-400">{greeting}</p>
           <h1 className="mt-1 text-2xl font-black text-slate-50">Tu hogar este mes</h1>
         </div>
-        <span className="flex h-11 w-11 items-center justify-center rounded-full border border-[#303638] bg-[#171b1d] text-lg" aria-hidden="true">
-          ◉
-        </span>
+        <FinanceMascot name={mascot.profile.name} progress={mascot.progress} onClick={() => { setCelebration(undefined); setShowMascot(true); }} />
       </div>
 
-      <div className="grid grid-cols-[1fr_auto] items-end gap-3">
+      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto]">
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Balance disponible</p>
-          <p className={`mt-1 truncate text-3xl font-black ${dashboard.available >= 0 ? "text-[#b5ff4a]" : "text-rose-400"}`}>
-            {currency(dashboard.available)}
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Saldo acumulado disponible</p>
+          <p className={`mt-1 truncate text-3xl font-black ${dashboard.available === null ? "text-slate-400" : dashboard.available >= 0 ? "text-[#b5ff4a]" : "text-rose-400"}`}>
+            {dashboard.available === null ? "Aún no iniciado" : currency(dashboard.available)}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Ingresos menos gastos del mes</p>
+          <p className="mt-1 text-xs text-slate-500">{dashboard.trackingStarted ? "Incluye el saldo heredado y los pagos realizados" : "Configura el mes de inicio en Perfil"}</p>
         </div>
-        <div className="w-32">
-          <MonthSelector value={selectedMonth} onChange={onMonthChange} />
+        <div className="w-full sm:w-48">
+          <MonthSelector value={selectedYm} onChange={onMonthChange} />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-[#303b40] bg-[#192229] p-3"><p className="text-xs font-bold text-slate-400">Resultado del mes</p><p className={`mt-1 font-black ${dashboard.monthlyResult >= 0 ? "text-[#b5ff4a]" : "text-rose-400"}`}>{currency(dashboard.monthlyResult)}</p></div>
+        <div className="rounded-xl border border-[#303b40] bg-[#192229] p-3"><p className="text-xs font-bold text-slate-400">Saldo heredado</p><p className="mt-1 font-black text-slate-100">{dashboard.trackingStarted ? currency(dashboard.inheritedBalance) : "—"}</p></div>
+      </div>
+      {dashboard.possibleDuplicatePayments > 0 ? <p role="status" className="rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-200">Algunos pagos fijos antiguos coinciden con varios movimientos. El saldo no puede deduplicarlos automáticamente; revisa esos registros en Espacios · Movimientos.</p> : null}
+
+      <div className="grid grid-cols-2 gap-3">
         <StatCard label="Ingresos" value={currency(dashboard.income)} tone="green" />
         <StatCard label="Gastos" value={currency(totalExpenses)} tone="red" />
-        <StatCard label="Gastos fijos" value={currency(dashboard.fixedExpenses)} tone="blue" />
+        <StatCard label="Fijos pagados" value={currency(dashboard.fixedExpenses)} tone="blue" />
         <StatCard label="Gastos variables" value={currency(dashboard.variableExpenses)} tone="amber" />
       </div>
 
@@ -76,9 +114,9 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           {[...spaces.budgets.filter((item) => !item.archived).slice(0, 2), ...spaces.goals.filter((item) => !item.archived).slice(0, 2)].slice(0, 4).map((space) => {
-            const goal = "target" in space;
-            const amount = goal ? space.saved : space.limit;
-            const total = goal ? space.target : space.limit;
+            const goal = "targetCents" in space;
+            const amount = goal ? fromCents(space.savedCents) : fromCents(space.limitCents);
+            const total = goal ? fromCents(space.targetCents) : fromCents(space.limitCents);
             const progress = goal ? Math.min(100, amount / total * 100) : 0;
             return <button key={space.id} onClick={onOpenSpaces} type="button" className="rounded-xl border border-[#30383b] bg-[#1b252b] p-3 text-left"><span className="text-lg">{space.icon}</span><p className="mt-1 truncate text-sm font-bold">{space.name}</p><p className="mt-1 text-xs text-slate-400">{goal ? `${currency(amount)} / ${currency(total)}` : `${currency(total)} / mes`}</p>{goal ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#354047]"><div className="h-full rounded-full bg-[#b7f34a]" style={{ width: `${progress}%` }} /></div> : null}</button>;
           })}
@@ -88,14 +126,14 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
 
       <Card>
         <div className="mb-3 flex items-center justify-between"><div><h2 className="text-lg font-black text-slate-50">Movimientos recientes</h2><p className="mt-1 text-sm text-slate-400">Actividad del mes</p></div><button type="button" className="text-sm font-bold text-[#b7f34a]" onClick={onOpenSpaces}>Ver todos</button></div>
-        <div className="space-y-2">{finance.monthMovements.slice(0, 4).length ? finance.monthMovements.slice(0, 4).map((movement) => <div key={movement.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#1b252b] p-3"><div className="min-w-0"><p className="truncate font-bold">{movement.description}</p><p className="text-xs text-slate-400">{movement.category} · {formatDate(movement.date)}</p></div><p className={`shrink-0 font-black ${movement.type === "Ingreso" ? "text-[#b7f34a]" : "text-slate-100"}`}>{movement.type === "Ingreso" ? "+" : "−"}{currency(movement.amount)}</p></div>) : <EmptyState title="Sin movimientos este mes" body="Usa el botón + para registrar el primero." />}</div>
+        <div className="space-y-2">{finance.monthMovements.slice(0, 4).length ? finance.monthMovements.slice(0, 4).map((movement) => <div key={movement.id} className="flex items-center justify-between gap-3 rounded-xl bg-[#1b252b] p-3"><div className="min-w-0"><p className="truncate font-bold">{movement.description}</p><p className="text-xs text-slate-400">{movement.category} · {formatDate(movement.date)}</p></div><p className={`shrink-0 font-black ${movement.type === "Ingreso" ? "text-[#b7f34a]" : "text-slate-100"}`}>{movement.type === "Ingreso" ? "+" : "−"}{currency(fromCents(movement.amountCents))}</p></div>) : <EmptyState title="Sin movimientos este mes" body="Usa el botón + para registrar el primero." />}</div>
       </Card>
 
       <Card>
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-black text-slate-50">Gastos por categoría</h2>
-            <p className="mt-1 text-sm text-slate-400">{selected?.label} · distribución del gasto</p>
+            <p className="mt-1 text-sm text-slate-400">{selected?.label} {selected?.year} · distribución del gasto</p>
           </div>
           <span className="rounded-full bg-[#202624] px-3 py-1.5 text-xs font-bold text-[#b5ff4a]">Mes</span>
         </div>
@@ -145,7 +183,7 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-black text-slate-50">Próximos pagos</h2>
-            <p className="mt-1 text-sm text-slate-400">Gastos fijos de {selected?.label}</p>
+            <p className="mt-1 text-sm text-slate-400">Gastos fijos de {selected?.label} {selected?.year}</p>
           </div>
           <span className="text-sm font-bold text-[#b5ff4a]">{dashboard.upcomingPayments.length}</span>
         </div>
@@ -158,7 +196,7 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
                   <p className="mt-1 text-sm text-slate-400">{formatDate(payment.dueDateForSelectedMonth)}</p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="font-black text-slate-100">{currency(payment.amount)}</p>
+                  <p className="font-black text-slate-100">{currency(fromCents(payment.amountCents))}</p>
                   <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${alertClasses[payment.alert]}`}>
                     {payment.daysRemaining < 0 ? "Vencido" : `${payment.daysRemaining} días`}
                   </span>
@@ -193,6 +231,27 @@ export function Dashboard({ selectedMonth, onMonthChange, finance, spaces, onOpe
           )}
         </div>
       </Card>
+
+      {showMascot ? <MascotPanel
+        profile={mascot.profile}
+        progress={mascot.progress}
+        rewards={mascot.rewards}
+        completed={mascot.completed}
+        week={mascot.week}
+        month={mascot.month}
+        weeklyIncomeCents={weeklyIncomeCents}
+        weeklyExpenseCents={weeklyExpenseCents}
+        weeklyActivityDays={weeklyDays}
+        fixedConcepts={finance.fixedExpenses.map((expense) => expense.concept)}
+        weeklyReviewAvailable={mascot.weeklyReviewAvailable}
+        fixedReviewAvailable={mascot.fixedReviewAvailable}
+        onFinish={mascot.finishOnboarding}
+        onRename={mascot.rename}
+        onReviewWeekly={mascot.reviewWeeklySummary}
+        onReviewFixed={mascot.reviewFixedExpenses}
+        onClose={() => setShowMascot(false)}
+        celebration={celebration}
+      /> : null}
     </div>
   );
 }

@@ -5,7 +5,7 @@ export type BudgetSpace = {
   name: string;
   categoryName?: string;
   category: MovementCategory;
-  limit: number;
+  limitCents: number;
   color: string;
   icon: string;
   archived: boolean;
@@ -15,9 +15,9 @@ export type GoalSpace = {
   id: string;
   name: string;
   categoryName?: string;
-  target: number;
-  saved: number;
-  contributions?: Array<{ amount: number; date: string }>;
+  targetCents: number;
+  savedCents: number;
+  contributions?: Array<{ amountCents: number; date: string }>;
   color: string;
   icon: string;
   archived: boolean;

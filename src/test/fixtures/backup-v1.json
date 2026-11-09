@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "exportedAt": "2026-01-15T12:00:00.000Z",
+  "movements": [
+    {
+      "id": "mov-fixture-1",
+      "date": "2026-01-05",
+      "type": "Gasto",
+      "category": "Mercado",
+      "description": "Compra semanal",
+      "amount": 42.5,
+      "createdAt": "2026-01-05T12:00:00.000Z",
+      "updatedAt": "2026-01-05T12:00:00.000Z"
+    }
+  ],
+  "fixedExpenses": [
+    {
+      "id": "fixed-fixture-1",
+      "concept": "Internet",
+      "amount": 35,
+      "payDay": 10,
+      "dueDate": "2026-02-10",
+      "status": "Pendiente",
+      "createdAt": "2026-01-05T12:00:00.000Z",
+      "updatedAt": "2026-01-05T12:00:00.000Z"
+    }
+  ],
+  "products": [
+    {
+      "id": "product-fixture-1",
+      "product": "Arroz",
+      "category": "Despensa",
+      "lastPrice": 2.5,
+      "lastPurchaseDate": "2026-01-05",
+      "currentQty": 1,
+      "minQty": 2,
+      "createdAt": "2026-01-05T12:00:00.000Z",
+      "updatedAt": "2026-01-05T12:00:00.000Z"
+    }
+  ],
+  "purchases": [
+    {
+      "id": "purchase-fixture-1",
+      "productId": "product-fixture-1",
+      "product": "Arroz",
+      "price": 2.5,
+      "quantity": 1,
+      "unitPrice": 2.5,
+      "priceMode": "unit",
+      "date": "2026-01-05",
+      "createdAt": "2026-01-05T12:00:00.000Z"
+    }
+  ],
+  "spaces": {
+    "budgets": [
+      {
+        "id": "budget-fixture-1",
+        "name": "Otros",
+        "categoryName": "Otros",
+        "category": "Otros",
+        "limit": 150,
+        "color": "#b7f34a",
+        "icon": "◉",
+        "archived": false
+      }
+    ],
+    "goals": [
+      {
+        "id": "goal-fixture-1",
+        "name": "Viaje",
+        "categoryName": "Viajes",
+        "target": 1000,
+        "saved": 100,
+        "contributions": [
+          { "amount": 100, "date": "2026-01-05T12:00:00.000Z" }
+        ],
+        "color": "#36c8d5",
+        "icon": "☆",
+        "archived": false
+      }
+    ],
+    "budgetCategories": ["Otros"],
+    "goalCategories": ["Viajes"],
+    "movementCategories": ["Estudios"]
+  }
+}

@@ -11,8 +11,6 @@ export type MovementCategory =
   | "Otros"
   | (string & {});
 
-export type FixedStatus = "Pendiente" | "Pagado";
-
 export type ProductCategory =
   | "Despensa"
   | "Limpieza"
@@ -33,8 +31,13 @@ export type Movement = {
   type: MovementType;
   category: MovementCategory;
   budgetSpaceId?: string;
+  source?: "market" | "ticket";
+  purchaseId?: string;
+  ticketId?: string;
+  fixedPaymentId?: string;
+  generatedByFixedPayment?: boolean;
   description: string;
-  amount: number;
+  amountCents: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -42,19 +45,34 @@ export type Movement = {
 export type FixedExpense = {
   id: string;
   concept: string;
-  amount: number;
+  category?: MovementCategory;
+  amountCents: number;
   payDay: number;
-  dueDate: string;
-  status: FixedStatus;
+  startMonth: string;
+  endMonth?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type FixedPayment = {
+  id: string;
+  expenseId: string;
+  month: string;
+  paidAt: string;
+  amountCents: number;
+  movementId?: string;
+};
+
+export type FinancialSettings = {
+  openingBalanceCents: number;
+  trackingStartMonth: string;
 };
 
 export type MarketProduct = {
   id: string;
   product: string;
   category: ProductCategory;
-  lastPrice: number;
+  lastUnitPriceCents: number;
   lastPurchaseDate: string;
   currentQty: number;
   minQty: number;
@@ -66,22 +84,53 @@ export type MarketPurchase = {
   id: string;
   productId: string;
   product: string;
-  price: number;
+  totalCents: number;
   quantity?: number;
-  unitPrice?: number;
+  unitPriceCents?: number;
   priceMode?: "total" | "unit";
   date: string;
   createdAt: string;
 };
 
+export type ReceiptLine = {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  totalCents: number;
+  inventoryAction: "ignore" | "update" | "create";
+  productId?: string;
+  category: ProductCategory;
+};
+
+export type ReceiptTicket = {
+  id: string;
+  storeName: string;
+  date: string;
+  subtotalCents?: number;
+  taxCents?: number;
+  totalCents: number;
+  lines: ReceiptLine[];
+  rawText?: string;
+  movementId: string;
+  createdAt: string;
+};
+
 export type BackupPayload = {
-  version: 1;
+  version: 5;
   exportedAt: string;
   movements: Movement[];
   fixedExpenses: FixedExpense[];
+  fixedPayments: FixedPayment[];
   products: MarketProduct[];
   purchases: MarketPurchase[];
-  spaces?: import("./spaces").SpacesState;
+  tickets: ReceiptTicket[];
+  spaces: import("./spaces").SpacesState;
+  notes: import("./notes").Note[];
+  checklistIds: string[];
+  financialSettings: FinancialSettings;
+  mascotProfile: import("./mascot").MascotProfile;
+  mascotEvents: import("./mascot").MascotEvent[];
 };
 
 export const movementCategories: MovementCategory[] = [
@@ -102,15 +151,4 @@ export const productCategories: ProductCategory[] = [
   "Mascotas",
   "Bebidas",
   "Otros",
-];
-
-export const fixedConcepts = [
-  "Renta",
-  "Internet",
-  "Teléfono",
-  "Gimnasio",
-  "Streaming",
-  "Seguro",
-  "Agua",
-  "Electricidad",
 ];
