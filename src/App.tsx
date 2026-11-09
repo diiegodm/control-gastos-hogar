@@ -121,7 +121,7 @@ export default function App() {
           ) : null}
           {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
           {section === "analysis" ? <Analysis finance={finance} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
-          {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void exportCurrentBackup()} onImport={() => importRef.current?.click()} importFeedback={importFeedback} /> : null}
+          {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void exportCurrentBackup()} onImport={() => importRef.current?.click()} importFeedback={importFeedback} financialSettings={finance.financialSettings} onSaveFinancialSettings={finance.updateFinancialSettings} /> : null}
         </div>
       </main>
 

@@ -33,6 +33,8 @@ export type Movement = {
   budgetSpaceId?: string;
   source?: "market";
   purchaseId?: string;
+  fixedPaymentId?: string;
+  generatedByFixedPayment?: boolean;
   description: string;
   amountCents: number;
   createdAt: string;
@@ -57,6 +59,12 @@ export type FixedPayment = {
   month: string;
   paidAt: string;
   amountCents: number;
+  movementId?: string;
+};
+
+export type FinancialSettings = {
+  openingBalanceCents: number;
+  trackingStartMonth: string;
 };
 
 export type MarketProduct = {
@@ -84,7 +92,7 @@ export type MarketPurchase = {
 };
 
 export type BackupPayload = {
-  version: 2;
+  version: 3;
   exportedAt: string;
   movements: Movement[];
   fixedExpenses: FixedExpense[];
@@ -94,6 +102,7 @@ export type BackupPayload = {
   spaces: import("./spaces").SpacesState;
   notes: import("./notes").Note[];
   checklistIds: string[];
+  financialSettings: FinancialSettings;
 };
 
 export const movementCategories: MovementCategory[] = [

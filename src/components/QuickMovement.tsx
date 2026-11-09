@@ -70,8 +70,8 @@ export function QuickMovement({ finance, customCategories = [], budgetSpaces = [
         amountCents: toCents(amount),
       });
       onClose();
-    } catch {
-      setError("No se pudo guardar. Inténtalo otra vez.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo guardar. Inténtalo otra vez.");
     } finally {
       setSaving(false);
     }

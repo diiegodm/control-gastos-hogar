@@ -20,7 +20,7 @@ export function Analysis({ finance, selectedYm, onMonthChange }: { finance: Fina
       const month = monthOption(ym);
       return { month: `${month.shortLabel} ${month.year}`, ingresos: summary.income, gastos: summary.totalSpent };
     });
-  }, [finance.fixedExpenses, finance.movements, period, selectedYm]);
+  }, [finance.fixedExpenses, finance.fixedPayments, finance.movements, period, selectedYm]);
 
   const categoryTotal = finance.summary.categoryData.reduce((sum, item) => sum + item.value, 0);
 
