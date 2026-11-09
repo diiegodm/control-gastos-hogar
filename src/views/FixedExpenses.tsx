@@ -30,6 +30,7 @@ export function FixedExpenses({ finance, categoryOptions = [] }: { finance: Fina
   const [selected, setSelected] = useState<(FixedExpense & { dueDateForSelectedMonth: string; daysRemaining: number; alert: "green" | "yellow" | "red"; isPaid: boolean }) | null>(null);
   const [mode, setMode] = useState<ModalMode | null>(null);
   const [error, setError] = useState("");
+  const [paymentError, setPaymentError] = useState("");
   const modalRef = useRef<HTMLElement | null>(null);
 
   function revealField(target: EventTarget) {
@@ -181,7 +182,8 @@ export function FixedExpenses({ finance, categoryOptions = [] }: { finance: Fina
                   <button className="btn-secondary !min-h-9 !px-3" type="button" onClick={() => setMode(null)} aria-label="Cerrar">×</button>
                 </div>
                 <div className="my-5 rounded-2xl border border-[#35454d] bg-[#19242b] p-4"><p className="text-3xl font-black text-[#b7f34a]">{currency(fromCents(selected.amountCents))}<span className="ml-2 text-sm font-semibold text-slate-400">al mes</span></p><p className="mt-3 text-sm text-slate-300">Próximo vencimiento: {formatLongDate(dueDateForMonth(selected.payDay, finance.selectedYm))}</p><p className="mt-1 text-sm text-slate-400">Día habitual de pago: {selected.payDay}</p>{selected.category ? <p className="mt-1 text-sm text-slate-400">Categoría de presupuesto: {selected.category}</p> : null}<p className="mt-1 text-sm text-slate-400">Desde: {selected.startMonth}</p><p className="mt-1 text-sm text-slate-400">Estado este mes: {selected.isPaid ? "Pagado" : "Pendiente"}</p></div>
-                <div className="grid grid-cols-2 gap-2"><button className="btn-primary" type="button" onClick={() => { void finance.markFixedPaid(selected.id).then(() => setMode(null)); }}>{selected.isPaid ? "Deshacer pago" : "Marcar pagado"}</button><button className="btn-secondary" type="button" onClick={() => setMode("edit")}>Editar cargo</button><button className="btn-danger col-span-2" type="button" onClick={() => void remove()}>Eliminar</button></div>
+                {paymentError ? <p role="alert" className="mb-3 rounded-xl bg-[#351f25] p-3 text-sm font-semibold text-[#ff9aa5]">{paymentError}</p> : null}
+                <div className="grid grid-cols-2 gap-2"><button className="btn-primary" type="button" onClick={() => { if (selected.isPaid && !confirm("¿Deshacer este pago? El movimiento vinculado se eliminará solo si se creó automáticamente al marcarlo como pagado.")) return; setPaymentError(""); void finance.markFixedPaid(selected.id).then(() => setMode(null)).catch((cause: unknown) => setPaymentError(cause instanceof Error ? cause.message : "No se pudo actualizar el pago.")); }}>{selected.isPaid ? "Deshacer pago" : "Marcar pagado"}</button><button className="btn-secondary" type="button" onClick={() => setMode("edit")}>Editar cargo</button><button className="btn-danger col-span-2" type="button" onClick={() => void remove()}>Eliminar</button></div>
               </>
             ) : (
               <>

@@ -76,7 +76,11 @@ export function Movements({ selectedYm, onMonthChange, finance, customCategories
   }
 
   async function remove(id: string) {
-    if (confirm("¿Eliminar este movimiento?")) {
+    const movement = finance.movements.find((item) => item.id === id);
+    const message = movement?.fixedPaymentId
+      ? "¿Eliminar este movimiento? El cargo fijo asociado volverá a pendiente."
+      : "¿Eliminar este movimiento?";
+    if (confirm(message)) {
       await finance.removeMovement(id);
     }
   }
@@ -98,17 +102,17 @@ export function Movements({ selectedYm, onMonthChange, finance, customCategories
           onSubmit={(event) => {
             event.preventDefault();
             const form = event.currentTarget;
-            void submit(new FormData(form)).then((saved) => { if (saved) form.reset(); });
+            void submit(new FormData(form)).then((saved) => { if (saved) form.reset(); }).catch((cause: unknown) => setFormError(cause instanceof Error ? cause.message : "No se pudo guardar el movimiento."));
           }}
         >
           <div className="grid grid-cols-2 gap-3">
-            <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Fecha del movimiento</span><input className="input" name="date" type="date" defaultValue={editing?.date ?? todayISO()} required /></label>
-            <select className="input" name="type" value={formType} onChange={(event) => setFormType(event.target.value as MovementType)}>
+            <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Fecha del movimiento</span><input className="input" name="date" type="date" defaultValue={editing?.date ?? todayISO()} readOnly={Boolean(editing?.fixedPaymentId)} required /></label>
+            <select className="input" name="type" value={formType} disabled={Boolean(editing?.fixedPaymentId)} onChange={(event) => setFormType(event.target.value as MovementType)}>
               <option>Ingreso</option>
               <option>Gasto</option>
             </select>
           </div>
-          <div className="block"><label className="mb-1 block text-xs font-bold text-slate-400" htmlFor="movement-category">Categoría</label><select className="input" id="movement-category" name="category" value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select><button className="mt-2 text-sm font-bold text-[#586b26]" type="button" onClick={() => setShowNewCategory((value) => !value)}>{showNewCategory ? "Cancelar nueva categoría" : "+ Crear categoría"}</button>{showNewCategory ? <div className="mt-2 flex gap-2"><input className="input min-w-0 flex-1" value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="Nombre de la categoría" /><button className="btn-secondary shrink-0" type="button" onClick={() => { const saved = onCreateCategory(newCategory); if (saved) { setCategory(saved); setNewCategory(""); setShowNewCategory(false); } }}>Guardar</button></div> : null}</div>
+          <div className="block"><label className="mb-1 block text-xs font-bold text-slate-400" htmlFor="movement-category">Categoría</label><select className="input" id="movement-category" name="category" value={category} disabled={Boolean(editing?.fixedPaymentId)} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select><button className="mt-2 text-sm font-bold text-[#586b26]" type="button" onClick={() => setShowNewCategory((value) => !value)}>{showNewCategory ? "Cancelar nueva categoría" : "+ Crear categoría"}</button>{showNewCategory ? <div className="mt-2 flex gap-2"><input className="input min-w-0 flex-1" value={newCategory} onChange={(event) => setNewCategory(event.target.value)} placeholder="Nombre de la categoría" /><button className="btn-secondary shrink-0" type="button" onClick={() => { const saved = onCreateCategory(newCategory); if (saved) { setCategory(saved); setNewCategory(""); setShowNewCategory(false); } }}>Guardar</button></div> : null}</div>
           {formType === "Gasto" ? <label className="block"><span className="mb-1 block text-xs font-bold text-slate-400">Presupuesto asociado (opcional)</span><select className="input" name="budgetSpaceId" defaultValue={editing?.budgetSpaceId ?? ""}><option value="">Sin asignar</option>{budgetSpaces.filter((space) => !space.archived).map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}</select></label> : null}
           <input className="input" name="description" placeholder="Concepto o descripción" defaultValue={editing?.description ?? ""} required />
           <input className="input" name="amount" type="text" inputMode="decimal" placeholder="Importe (ej. 12,50)" defaultValue={editing ? fromCents(editing.amountCents) : ""} required />

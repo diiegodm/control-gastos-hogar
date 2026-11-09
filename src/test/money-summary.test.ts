@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseAmount } from "../lib/money";
 import { dueDateForMonth, isSameMonth, monthOption, shiftYearMonth } from "../lib/date";
 import { monthSummary } from "../lib/summary";
+import { calculateCashBalance } from "../lib/cashBalance";
 import type { FixedExpense, Movement } from "../types/finance";
 
 describe("parseAmount", () => {
@@ -47,6 +48,7 @@ describe("mes y resumen mensual", () => {
     const stateWithInventoryHistory = {
       movements,
       fixedExpenses,
+      fixedPayments: [{ id: "fix__2027-01", expenseId: "fix", month: "2027-01", paidAt: "2027-01-05", amountCents: 3500 }],
       purchases: [{ id: "buy", productId: "milk", product: "Leche", totalCents: 1000, date: "2027-01-09", createdAt: "" }],
     };
 
@@ -56,5 +58,58 @@ describe("mes y resumen mensual", () => {
     expect(summary.categoryData).toContainEqual({ category: "Ropa", value: 40 });
     expect(summary.categoryData).toContainEqual({ category: "Otros", value: 35 });
     expect(summary.categoryData).toContainEqual({ category: "Mercado", value: 10 });
+  });
+});
+
+describe("saldo acumulado de caja", () => {
+  const settings = { openingBalanceCents: 100000, trackingStartMonth: "2026-11" };
+
+  it("arrastra meses positivos y negativos desde el saldo inicial", () => {
+    const movements: Movement[] = [
+      { id: "nov-in", date: "2026-11-03", type: "Ingreso", category: "Salario", description: "Nómina", amountCents: 25000, createdAt: "", updatedAt: "" },
+      { id: "dec-in", date: "2026-12-03", type: "Ingreso", category: "Salario", description: "Nómina", amountCents: 10000, createdAt: "", updatedAt: "" },
+      { id: "jan-out", date: "2027-01-03", type: "Gasto", category: "Otros", description: "Reparación", amountCents: 8000, createdAt: "", updatedAt: "" },
+    ];
+
+    expect(calculateCashBalance({ movements, fixedPayments: [], fixedExpenses: [], settings, selectedMonth: "2027-01" })).toMatchObject({
+      inheritedBalanceCents: 135000,
+      monthlyResultCents: -8000,
+      availableBalanceCents: 127000,
+    });
+  });
+
+  it("cuenta cargos fijos pagados una sola vez si tienen movimiento vinculado", () => {
+    const movement: Movement = { id: "fixed-move", date: "2026-11-05", type: "Gasto", category: "Otros", description: "Internet", amountCents: 3500, fixedPaymentId: "internet__2026-11", createdAt: "", updatedAt: "" };
+    const fixedPayment = { id: "internet__2026-11", expenseId: "internet", month: "2026-11", paidAt: "2026-11-05", amountCents: 3500, movementId: movement.id };
+
+    expect(calculateCashBalance({ movements: [movement], fixedPayments: [fixedPayment], fixedExpenses: [], settings, selectedMonth: "2026-11" }).monthlyResultCents).toBe(-3500);
+    expect(monthSummary({ movements: [movement], fixedExpenses: [], fixedPayments: [fixedPayment] }, "2026-11").totalSpent).toBe(35);
+  });
+
+  it("no resta cargos fijos pendientes como si ya fueran dinero pagado", () => {
+    const fixedExpenses: FixedExpense[] = [{ id: "rent", concept: "Renta", amountCents: 80000, payDay: 5, startMonth: "2026-11", createdAt: "", updatedAt: "" }];
+    expect(monthSummary({ movements: [], fixedExpenses }, "2026-11")).toMatchObject({ fixedExpenses: 0, totalSpent: 0 });
+  });
+
+  it("deduplica un movimiento histórico inequívocamente asociado a un pago fijo", () => {
+    const expense: FixedExpense = { id: "internet", concept: "Internet", category: "Otros", amountCents: 3500, payDay: 5, startMonth: "2026-11", createdAt: "", updatedAt: "" };
+    const movement: Movement = { id: "old-internet", date: "2026-11-05", type: "Gasto", category: "Otros", description: "Internet", amountCents: 3500, createdAt: "", updatedAt: "" };
+    const payment = { id: "internet__2026-11", expenseId: expense.id, month: "2026-11", paidAt: "2026-11-05", amountCents: 3500 };
+
+    expect(calculateCashBalance({ movements: [movement], fixedPayments: [payment], fixedExpenses: [expense], settings, selectedMonth: "2026-11" })).toMatchObject({ monthlyResultCents: -3500, possibleDuplicatePayments: 0 });
+    expect(monthSummary({ movements: [movement], fixedPayments: [payment], fixedExpenses: [expense] }, "2026-11").totalSpent).toBe(35);
+  });
+
+  it("arrastra pagos fijos heredados aunque todavía no tengan movimiento asociado", () => {
+    const fixedPayment = { id: "rent__2026-11", expenseId: "rent", month: "2026-11", paidAt: "2026-11-05", amountCents: 80000 };
+    expect(calculateCashBalance({ movements: [], fixedPayments: [fixedPayment], fixedExpenses: [], settings, selectedMonth: "2026-11" }).availableBalanceCents).toBe(20000);
+  });
+
+  it("no aplica el saldo inicial a meses anteriores al inicio del seguimiento", () => {
+    expect(calculateCashBalance({ movements: [], fixedPayments: [], fixedExpenses: [], settings, selectedMonth: "2026-10" })).toMatchObject({
+      trackingStarted: false,
+      monthlyResultCents: 0,
+      availableBalanceCents: null,
+    });
   });
 });

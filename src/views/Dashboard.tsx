@@ -53,11 +53,11 @@ export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, on
 
       <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto]">
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Balance disponible</p>
-          <p className={`mt-1 truncate text-3xl font-black ${dashboard.available >= 0 ? "text-[#b5ff4a]" : "text-rose-400"}`}>
-            {currency(dashboard.available)}
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-400">Saldo acumulado disponible</p>
+          <p className={`mt-1 truncate text-3xl font-black ${dashboard.available === null ? "text-slate-400" : dashboard.available >= 0 ? "text-[#b5ff4a]" : "text-rose-400"}`}>
+            {dashboard.available === null ? "Aún no iniciado" : currency(dashboard.available)}
           </p>
-          <p className="mt-1 text-xs text-slate-500">Ingresos menos gastos del mes</p>
+          <p className="mt-1 text-xs text-slate-500">{dashboard.trackingStarted ? "Incluye el saldo heredado y los pagos realizados" : "Configura el mes de inicio en Perfil"}</p>
         </div>
         <div className="w-full sm:w-48">
           <MonthSelector value={selectedYm} onChange={onMonthChange} />
@@ -65,9 +65,15 @@ export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, on
       </div>
 
       <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-[#303b40] bg-[#192229] p-3"><p className="text-xs font-bold text-slate-400">Resultado del mes</p><p className={`mt-1 font-black ${dashboard.monthlyResult >= 0 ? "text-[#b5ff4a]" : "text-rose-400"}`}>{currency(dashboard.monthlyResult)}</p></div>
+        <div className="rounded-xl border border-[#303b40] bg-[#192229] p-3"><p className="text-xs font-bold text-slate-400">Saldo heredado</p><p className="mt-1 font-black text-slate-100">{dashboard.trackingStarted ? currency(dashboard.inheritedBalance) : "—"}</p></div>
+      </div>
+      {dashboard.possibleDuplicatePayments > 0 ? <p role="status" className="rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-200">Algunos pagos fijos antiguos coinciden con varios movimientos. El saldo no puede deduplicarlos automáticamente; revisa esos registros en Espacios · Movimientos.</p> : null}
+
+      <div className="grid grid-cols-2 gap-3">
         <StatCard label="Ingresos" value={currency(dashboard.income)} tone="green" />
         <StatCard label="Gastos" value={currency(totalExpenses)} tone="red" />
-        <StatCard label="Gastos fijos" value={currency(dashboard.fixedExpenses)} tone="blue" />
+        <StatCard label="Fijos pagados" value={currency(dashboard.fixedExpenses)} tone="blue" />
         <StatCard label="Gastos variables" value={currency(dashboard.variableExpenses)} tone="amber" />
       </div>
 

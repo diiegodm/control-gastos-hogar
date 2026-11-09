@@ -1,8 +1,9 @@
-import type { BackupPayload, FixedExpense, FixedPayment, MarketProduct, MarketPurchase, Movement } from "../types/finance";
+import type { BackupPayload, FinancialSettings, FixedExpense, FixedPayment, MarketProduct, MarketPurchase, Movement } from "../types/finance";
 import type { Note } from "../types/notes";
 import type { BudgetSpace, GoalSpace, SpacesState } from "../types/spaces";
 import { todayISO } from "./date";
 import { toCents } from "./money";
+import { defaultFinancialSettings } from "./cashBalance";
 
 let databaseName = "finanzas-hogar-db";
 const DB_VERSION = 2;
@@ -72,6 +73,17 @@ function isoDate(record: Record<string, unknown>, key: string, label: string): s
 function yearMonth(value: unknown, label: string): string {
   if (typeof value !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw new Error(`${label} debe tener formato YYYY-MM.`);
   return value;
+}
+
+function parseFinancialSettings(raw: unknown, fallback: FinancialSettings): FinancialSettings {
+  if (raw === undefined) return fallback;
+  const settings = asRecord(raw, "financialSettings");
+  const openingBalanceCents = finiteNumber(settings, "openingBalanceCents", "financialSettings", true);
+  if (!Number.isSafeInteger(openingBalanceCents)) throw new Error("financialSettings.openingBalanceCents debe estar dentro del rango seguro.");
+  return {
+    openingBalanceCents,
+    trackingStartMonth: yearMonth(settings.trackingStartMonth, "financialSettings.trackingStartMonth"),
+  };
 }
 
 function recordArray(value: unknown, key: string): Record<string, unknown>[] {
@@ -166,7 +178,8 @@ function parseBackupV1(backup: Record<string, unknown>): BackupPayload {
     requiredString(item, "category", label);
     requiredString(item, "description", label);
     const amountCents = toCents(finiteNumber(item, "amount", label));
-    optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label);
+    optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label); optionalString(item, "fixedPaymentId", label);
+    if (item.generatedByFixedPayment !== undefined && typeof item.generatedByFixedPayment !== "boolean") throw new Error(`${label}.generatedByFixedPayment debe ser booleano.`);
     const { amount: _oldAmount, ...rest } = item;
     return { ...rest, amountCents } as unknown as Movement;
   });
@@ -231,7 +244,7 @@ function parseBackupV1(backup: Record<string, unknown>): BackupPayload {
   const spaces = backup.spaces === undefined ? EMPTY_SPACES : parseSpaces(backup.spaces, true);
   const notes = backup.notes === undefined ? [] : parseNotes(backup.notes);
   const checklistIds = backup.checklistIds === undefined ? [] : parseChecklist(backup.checklistIds);
-  return { version: 2, exportedAt: String(backup.exportedAt || new Date().toISOString()), movements, fixedExpenses, fixedPayments, products, purchases, spaces, notes, checklistIds };
+  return { version: 3, exportedAt: String(backup.exportedAt || new Date().toISOString()), movements, fixedExpenses, fixedPayments, products, purchases, spaces, notes, checklistIds, financialSettings: defaultFinancialSettings(movements, fixedPayments) };
 }
 
 function parseChecklist(raw: unknown): string[] {
@@ -242,14 +255,15 @@ function parseChecklist(raw: unknown): string[] {
 export function parseBackup(raw: unknown): BackupPayload {
   const backup = asRecord(raw, "El respaldo");
   if (backup.version === 1) return parseBackupV1(backup);
-  if (backup.version !== 2) throw new Error("La versión del respaldo no es compatible.");
+  if (backup.version !== 2 && backup.version !== 3) throw new Error("La versión del respaldo no es compatible.");
   requiredString(backup, "exportedAt", "El respaldo");
   const movements = recordArray(backup.movements, "movements").map((item, index) => {
     const label = `movements[${index}]`;
     isoDate(item, "date", label);
     if (item.type !== "Ingreso" && item.type !== "Gasto") throw new Error(`${label}.type no es válido.`);
     requiredString(item, "category", label); requiredString(item, "description", label);
-    finiteNumber(item, "amountCents", label, true); optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label);
+    finiteNumber(item, "amountCents", label, true); optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label); optionalString(item, "fixedPaymentId", label);
+    if (item.generatedByFixedPayment !== undefined && typeof item.generatedByFixedPayment !== "boolean") throw new Error(`${label}.generatedByFixedPayment debe ser booleano.`);
     return item as unknown as Movement;
   });
   const fixedExpenses = recordArray(backup.fixedExpenses, "fixedExpenses").map((item, index) => {
@@ -266,13 +280,26 @@ export function parseBackup(raw: unknown): BackupPayload {
   });
   const fixedPayments = recordArray(backup.fixedPayments, "fixedPayments").map((item, index) => {
     const label = `fixedPayments[${index}]`;
-    requiredString(item, "expenseId", label); yearMonth(item.month, `${label}.month`);
+    requiredString(item, "expenseId", label); yearMonth(item.month, `${label}.month`); optionalString(item, "movementId", label);
     requiredString(item, "paidAt", label); finiteNumber(item, "amountCents", label, true);
     return item as unknown as FixedPayment;
   });
   const fixedExpenseIds = new Set(fixedExpenses.map((expense) => expense.id));
   for (const payment of fixedPayments) {
     if (!fixedExpenseIds.has(payment.expenseId)) throw new Error(`El pago fijo "${payment.id}" no corresponde a un cargo existente.`);
+  }
+  const movementById = new Map(movements.map((movement) => [movement.id, movement]));
+  const paymentById = new Map(fixedPayments.map((payment) => [payment.id, payment]));
+  for (const movement of movements) {
+    if (movement.fixedPaymentId) {
+      const payment = paymentById.get(movement.fixedPaymentId);
+      if (!payment || payment.month !== movement.date.slice(0, 7)) throw new Error(`El movimiento "${movement.id}" apunta a un pago fijo inexistente o de otro mes.`);
+    }
+  }
+  for (const payment of fixedPayments) {
+    if (payment.movementId && (movementById.get(payment.movementId)?.fixedPaymentId !== payment.id || movementById.get(payment.movementId)?.date.slice(0, 7) !== payment.month)) {
+      throw new Error(`El pago fijo "${payment.id}" tiene un movimiento asociado no válido.`);
+    }
   }
   const products = recordArray(backup.products, "products").map((item, index) => {
     const label = `products[${index}]`;
@@ -295,7 +322,10 @@ export function parseBackup(raw: unknown): BackupPayload {
   const spaces = parseSpaces(backup.spaces, false);
   const notes = parseNotes(backup.notes);
   const checklistIds = parseChecklist(backup.checklistIds);
-  return { version: 2, exportedAt: String(backup.exportedAt), movements, fixedExpenses, fixedPayments, products, purchases, spaces, notes, checklistIds };
+  const financialSettings = backup.version === 3
+    ? parseFinancialSettings(backup.financialSettings, defaultFinancialSettings(movements, fixedPayments))
+    : defaultFinancialSettings(movements, fixedPayments);
+  return { version: 3, exportedAt: String(backup.exportedAt), movements, fixedExpenses, fixedPayments, products, purchases, spaces, notes, checklistIds, financialSettings };
 }
 
 function readLegacyLocalStorage(): { spaces?: unknown; notes: Note[]; checklistIds: string[]; raw: Record<string, string | null> } {
@@ -455,6 +485,41 @@ export async function saveMarketPurchaseBatch(products: MarketProduct[], purchas
   });
 }
 
+export async function saveFixedPaymentAndMovement(payment: FixedPayment, movement: Movement): Promise<void> {
+  await runTransaction(["fixedPayments", "movements"], "readwrite", (transaction) => {
+    transaction.objectStore("fixedPayments").put(payment);
+    transaction.objectStore("movements").put(movement);
+  });
+}
+
+export async function updateMovementAndFixedPayment(movement: Movement): Promise<void> {
+  if (!movement.fixedPaymentId) {
+    await putItem("movements", movement);
+    return;
+  }
+  const paymentId = movement.fixedPaymentId;
+  await runTransaction(["fixedPayments", "movements"], "readwrite", (transaction) => {
+    transaction.objectStore("movements").put(movement);
+    const paymentStore = transaction.objectStore("fixedPayments");
+    const request = paymentStore.get(paymentId);
+    request.onsuccess = () => {
+      const payment = request.result as FixedPayment | undefined;
+      if (payment) paymentStore.put({ ...payment, amountCents: movement.amountCents });
+    };
+  });
+}
+
+export async function deleteMovementAndLinkedPayment(movement: Movement): Promise<void> {
+  if (!movement.fixedPaymentId) {
+    await deleteItem("movements", movement.id);
+    return;
+  }
+  await runTransaction(["fixedPayments", "movements"], "readwrite", (transaction) => {
+    transaction.objectStore("movements").delete(movement.id);
+    transaction.objectStore("fixedPayments").delete(movement.fixedPaymentId!);
+  });
+}
+
 export async function migrateLegacyMarketPurchasesOnce(): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
@@ -498,17 +563,51 @@ export async function deleteItem(storeName: StoreName, id: string): Promise<void
 }
 
 export async function deleteFixedPayment(expenseId: string, month: string): Promise<void> {
-  await deleteItem("fixedPayments", `${expenseId}__${month}`);
+  await runTransaction(["fixedPayments", "movements"], "readwrite", (transaction) => {
+    const paymentStore = transaction.objectStore("fixedPayments");
+    const movementStore = transaction.objectStore("movements");
+    const paymentRequest = paymentStore.get(`${expenseId}__${month}`);
+    paymentRequest.onsuccess = () => {
+      const payment = paymentRequest.result as FixedPayment | undefined;
+      if (payment?.movementId) {
+        const movementRequest = movementStore.get(payment.movementId);
+        movementRequest.onsuccess = () => {
+          const movement = movementRequest.result as Movement | undefined;
+          if (movement?.fixedPaymentId !== payment.id) return;
+          if (movement.generatedByFixedPayment) movementStore.delete(movement.id);
+          else {
+            const { fixedPaymentId: _fixedPaymentId, ...unlinked } = movement;
+            movementStore.put(unlinked);
+          }
+        };
+      }
+      paymentStore.delete(`${expenseId}__${month}`);
+    };
+  });
 }
 
 export async function deleteFixedExpenseAndPayments(expenseId: string): Promise<void> {
-  await runTransaction(["fixedExpenses", "fixedPayments"], "readwrite", (transaction) => {
+  await runTransaction(["fixedExpenses", "fixedPayments", "movements"], "readwrite", (transaction) => {
     transaction.objectStore("fixedExpenses").delete(expenseId);
-    const payments = transaction.objectStore("fixedPayments").openCursor();
+    const paymentStore = transaction.objectStore("fixedPayments");
+    const movementStore = transaction.objectStore("movements");
+    const payments = paymentStore.openCursor();
     payments.onsuccess = () => {
       const cursor = payments.result;
       if (!cursor) return;
-      if ((cursor.value as FixedPayment).expenseId === expenseId) cursor.delete();
+      const payment = cursor.value as FixedPayment;
+      if (payment.expenseId === expenseId) {
+        if (payment.movementId) {
+          const movementRequest = movementStore.get(payment.movementId);
+          movementRequest.onsuccess = () => {
+            const movement = movementRequest.result as Movement | undefined;
+            if (!movement || movement.fixedPaymentId !== payment.id) return;
+            const { fixedPaymentId: _fixedPaymentId, generatedByFixedPayment: _generatedByFixedPayment, ...unlinked } = movement;
+            movementStore.put(unlinked);
+          };
+        }
+        cursor.delete();
+      }
       cursor.continue();
     };
   });
@@ -541,11 +640,12 @@ async function readSnapshot(): Promise<StoreSnapshot> {
 function backupFromSnapshot(snapshot: StoreSnapshot): BackupPayload {
   const spaces = snapshot.spaces.find((record) => record.id === "main")?.state ?? EMPTY_SPACES;
   const checklistIds = snapshot.meta.find((record) => record.key === "marketChecklist")?.value ?? [];
+  const financialSettings = snapshot.meta.find((record) => record.key === "financialSettings")?.value;
   return parseBackup({
-    version: 2, exportedAt: new Date().toISOString(), movements: snapshot.movements,
+    version: 3, exportedAt: new Date().toISOString(), movements: snapshot.movements,
     fixedExpenses: snapshot.fixedExpenses, fixedPayments: snapshot.fixedPayments,
     products: snapshot.products, purchases: snapshot.purchases, spaces,
-    notes: snapshot.notes, checklistIds,
+    notes: snapshot.notes, checklistIds, financialSettings: financialSettings ?? defaultFinancialSettings(snapshot.movements, snapshot.fixedPayments),
   });
 }
 
@@ -588,6 +688,7 @@ async function replaceBackupAtomically(backup: BackupPayload): Promise<void> {
     for (const note of backup.notes) transaction.objectStore("notes").put(note);
     transaction.objectStore("meta").put({ key: "marketChecklist", value: backup.checklistIds } satisfies MetaRecord);
     transaction.objectStore("meta").put({ key: "marketPurchaseMovementsMigrated", value: true } satisfies MetaRecord);
+    transaction.objectStore("meta").put({ key: "financialSettings", value: backup.financialSettings } satisfies MetaRecord);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error("No se pudo completar la restauración."));
     transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la restauración; los datos anteriores se mantienen."));

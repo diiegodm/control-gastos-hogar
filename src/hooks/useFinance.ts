@@ -7,10 +7,14 @@ import {
   downloadBackup,
   exportBackup,
   getAll,
+  getItem,
   importBackup,
   migrateLegacyMarketPurchasesOnce,
   putItem,
+  saveFixedPaymentAndMovement,
   saveMarketPurchaseBatch,
+  updateMovementAndFixedPayment,
+  deleteMovementAndLinkedPayment,
 } from "../lib/db";
 import {
   daysUntil,
@@ -22,12 +26,14 @@ import {
 import type {
   FixedExpense,
   FixedPayment,
+  FinancialSettings,
   MarketProduct,
   MarketPurchase,
   Movement,
   MovementCategory,
 } from "../types/finance";
 import { monthSummary } from "../lib/summary";
+import { calculateCashBalance, resolveFinancialSettings } from "../lib/cashBalance";
 
 type FinanceState = {
   movements: Movement[];
@@ -35,6 +41,7 @@ type FinanceState = {
   fixedPayments: FixedPayment[];
   products: MarketProduct[];
   purchases: MarketPurchase[];
+  financialSettings: FinancialSettings;
 };
 
 const emptyState: FinanceState = {
@@ -43,6 +50,7 @@ const emptyState: FinanceState = {
   fixedPayments: [],
   products: [],
   purchases: [],
+  financialSettings: { openingBalanceCents: 0, trackingStartMonth: todayISO().slice(0, 7) },
 };
 
 type MovementInput = Omit<Movement, "id" | "createdAt" | "updatedAt">;
@@ -71,12 +79,13 @@ export function useFinance(selectedYm: string) {
   const [retryCount, setRetryCount] = useState(0);
 
   const refresh = useCallback(async () => {
-    const [movements, fixedExpenses, fixedPayments, products, purchases] = await Promise.all([
+    const [movements, fixedExpenses, fixedPayments, products, purchases, settingsRecord] = await Promise.all([
       getAll("movements"),
       getAll("fixedExpenses"),
       getAll("fixedPayments"),
       getAll("products"),
       getAll("purchases"),
+      getItem("meta", "financialSettings"),
     ]);
 
     setState({
@@ -85,6 +94,7 @@ export function useFinance(selectedYm: string) {
       fixedPayments,
       products: products.sort((a, b) => a.product.localeCompare(b.product)),
       purchases: purchases.sort((a, b) => b.date.localeCompare(a.date)),
+      financialSettings: resolveFinancialSettings(settingsRecord?.value, movements, fixedPayments),
     });
   }, []);
 
@@ -173,7 +183,16 @@ export function useFinance(selectedYm: string) {
   const dashboard = useMemo(() => {
     const summary = monthSummary(state, selectedYm);
     const { income, fixedExpenses, variableExpenses, categoryData } = summary;
-    const available = income - fixedExpenses - variableExpenses;
+    const cashBalance = calculateCashBalance({
+      movements: state.movements,
+      fixedPayments: state.fixedPayments,
+      fixedExpenses: state.fixedExpenses,
+      settings: state.financialSettings,
+      selectedMonth: selectedYm,
+    });
+    const monthlyResult = cashBalance.monthlyResultCents / 100;
+    const inheritedBalance = cashBalance.inheritedBalanceCents / 100;
+    const available = cashBalance.availableBalanceCents === null ? null : cashBalance.availableBalanceCents / 100;
 
     const upcomingPayments = fixedForMonth
       .filter((item) => !item.isPaid)
@@ -189,6 +208,10 @@ export function useFinance(selectedYm: string) {
       fixedExpenses,
       variableExpenses,
       available,
+      monthlyResult,
+      inheritedBalance,
+      trackingStarted: cashBalance.trackingStarted,
+      possibleDuplicatePayments: cashBalance.possibleDuplicatePayments,
       totalSpent: summary.totalSpent,
       categoryData,
       fixedVsVariable: [
@@ -204,6 +227,15 @@ export function useFinance(selectedYm: string) {
 
   const createMovement = useCallback(
     async (input: MovementInput) => {
+      if (input.type === "Gasto") {
+        const matchesPaidFixed = state.fixedPayments.some((payment) => {
+          if (payment.month !== input.date.slice(0, 7) || payment.amountCents !== input.amountCents) return false;
+          const expense = state.fixedExpenses.find((item) => item.id === payment.expenseId);
+          if (!expense || (expense.category && expense.category !== input.category)) return false;
+          return normalizeProductName(expense.concept) === normalizeProductName(input.description);
+        });
+        if (matchesPaidFixed) throw new Error("Este cargo fijo ya está registrado como pagado este mes. No lo añadas otra vez en Movimientos.");
+      }
       const now = new Date().toISOString();
       await putItem("movements", {
         ...input,
@@ -213,14 +245,14 @@ export function useFinance(selectedYm: string) {
       });
       await refresh();
     },
-    [refresh],
+    [refresh, state.fixedExpenses, state.fixedPayments],
   );
 
   const updateMovement = useCallback(
     async (id: string, input: MovementInput) => {
       const current = state.movements.find((item) => item.id === id);
       if (!current) return;
-      await putItem("movements", {
+      await updateMovementAndFixedPayment({
         ...current,
         ...input,
         updatedAt: new Date().toISOString(),
@@ -232,10 +264,12 @@ export function useFinance(selectedYm: string) {
 
   const removeMovement = useCallback(
     async (id: string) => {
-      await deleteItem("movements", id);
+      const current = state.movements.find((item) => item.id === id);
+      if (!current) return;
+      await deleteMovementAndLinkedPayment(current);
       await refresh();
     },
-    [refresh],
+    [refresh, state.movements],
   );
 
   const createFixedExpense = useCallback(
@@ -280,16 +314,42 @@ export function useFinance(selectedYm: string) {
     else {
       const expense = state.fixedExpenses.find((item) => item.id === expenseId);
       if (!expense) return;
-      await putItem("fixedPayments", {
-        id: `${expenseId}__${selectedYm}`,
+      const paymentId = `${expenseId}__${selectedYm}`;
+      const candidates = state.movements.filter((movement) =>
+        movement.type === "Gasto" && movement.date.startsWith(selectedYm) && movement.amountCents === expense.amountCents
+        && normalizeProductName(movement.description) === normalizeProductName(expense.concept)
+        && (!expense.category || movement.category === expense.category) && !movement.fixedPaymentId,
+      );
+      if (candidates.length > 1) throw new Error("Hay varios movimientos iguales a este cargo. Revisa el historial antes de marcarlo como pagado.");
+      const now = new Date().toISOString();
+      const linkedMovement = candidates[0] ?? {
+        id: `fixed_${paymentId}`,
+        date: dueDateForMonth(expense.payDay, selectedYm),
+        type: "Gasto" as const,
+        category: expense.category ?? "Otros",
+        description: expense.concept,
+        amountCents: expense.amountCents,
+        createdAt: now,
+        updatedAt: now,
+        generatedByFixedPayment: true,
+      };
+      const movement = { ...linkedMovement, fixedPaymentId: paymentId, updatedAt: now };
+      await saveFixedPaymentAndMovement({
+        id: paymentId,
         expenseId,
         month: selectedYm,
         paidAt: todayISO(),
         amountCents: expense.amountCents,
-      });
+        movementId: movement.id,
+      }, movement);
     }
     await refresh();
-  }, [refresh, selectedYm, state.fixedExpenses, state.fixedPayments]);
+  }, [refresh, selectedYm, state.fixedExpenses, state.fixedPayments, state.movements]);
+
+  const updateFinancialSettings = useCallback(async (settings: FinancialSettings) => {
+    await putItem("meta", { key: "financialSettings", value: settings });
+    await refresh();
+  }, [refresh]);
 
   const createProduct = useCallback(
     async (input: ProductInput) => {
@@ -480,6 +540,8 @@ export function useFinance(selectedYm: string) {
     fixedForMonth,
     selectedYm,
     dashboard,
+    financialSettings: state.financialSettings,
+    updateFinancialSettings,
     summary,
     createMovement,
     updateMovement,
