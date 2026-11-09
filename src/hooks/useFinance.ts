@@ -40,6 +40,7 @@ import type {
 import { monthSummary } from "../lib/summary";
 import { calculateCashBalance, resolveFinancialSettings } from "../lib/cashBalance";
 import { currentMonthKey } from "../lib/mascot";
+import { MASCOT_REWARDS } from "../types/mascot";
 
 type FinanceState = {
   movements: Movement[];
@@ -293,7 +294,7 @@ export function useFinance(selectedYm: string) {
         createdAt: now,
         updatedAt: now,
       });
-      try { await awardMascotMission(`mission:fixed-organized:${currentMonthKey()}`, 20, "Gastos fijos organizados"); } catch { /* La recompensa es secundaria al gasto. */ }
+      try { await awardMascotMission(`mission:fixed-organized:${currentMonthKey()}`, MASCOT_REWARDS.monthlyFixedSetup, "Gastos fijos organizados"); } catch { /* La recompensa es secundaria al gasto. */ }
       await refresh();
     },
     [refresh],
@@ -308,7 +309,7 @@ export function useFinance(selectedYm: string) {
         ...input,
         updatedAt: new Date().toISOString(),
       });
-      try { await awardMascotMission(`mission:fixed-organized:${currentMonthKey()}`, 20, "Gastos fijos organizados"); } catch { /* La recompensa es secundaria al gasto. */ }
+      try { await awardMascotMission(`mission:fixed-organized:${currentMonthKey()}`, MASCOT_REWARDS.monthlyFixedSetup, "Gastos fijos organizados"); } catch { /* La recompensa es secundaria al gasto. */ }
       await refresh();
     },
     [refresh, state.fixedExpenses],
