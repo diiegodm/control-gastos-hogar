@@ -12,6 +12,25 @@ describe("lectura de datos de ticket", () => {
       { description: "Leche", quantity: 1, totalCents: 125 },
       { description: "Salsa tomate", quantity: 3, totalCents: 600 },
     ]);
+    expect(receipt.lines.map(({ inventoryAction }) => inventoryAction)).toEqual(["create", "create"]);
+  });
+
+  it("separa cantidad, nombre e importe en filas con unidades y peso", () => {
+    const receipt = parseReceiptText([
+      "MERCADONA",
+      "Leche entera Hacendado 1 L 6 ud 0,96 € 5,76 €",
+      "Pechuga de pollo fileteada 0,620 kg 6,25 €/kg 3,88 €",
+      "Huevos M (12 uds) 1 ud 2,35 € 2,35 €",
+      "Patatas bolsa 2,5 kg 1 ud 2,99 € 2,99 €",
+      "TOTAL 14,98 €",
+    ].join("\n"), "2026-11-10");
+
+    expect(receipt.lines.map(({ description, quantity, totalCents }) => ({ description, quantity, totalCents }))).toEqual([
+      { description: "Leche entera Hacendado 1 L", quantity: 6, totalCents: 576 },
+      { description: "Pechuga de pollo fileteada", quantity: 0.62, totalCents: 388 },
+      { description: "Huevos M (12 uds)", quantity: 1, totalCents: 235 },
+      { description: "Patatas bolsa 2,5 kg", quantity: 1, totalCents: 299 },
+    ]);
   });
 
   it("avisa si el OCR no encuentra el importe y permite revisar la diferencia", () => {

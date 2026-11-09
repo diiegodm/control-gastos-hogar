@@ -1,7 +1,8 @@
-const CACHE_NAME = "finanzas-hogar-v7";
+const CACHE_NAME = "finanzas-hogar-v8";
 const APP_SHELL = [
   "/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg",
   "/mascot/sprout.png", "/mascot/leaf.png", "/mascot/guardian.png",
+  "/ocr/worker.min.js",
   "/ocr/core/tesseract-core-lstm.wasm.js",
   "/ocr/core/tesseract-core-simd-lstm.wasm.js",
   "/ocr/core/tesseract-core-relaxedsimd-lstm.wasm.js",
@@ -13,7 +14,6 @@ self.addEventListener("install", (event) => {
     caches
       .open(CACHE_NAME)
       .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => caches.open(CACHE_NAME).then((cache) => cache.add("/assets/receipt-worker.js").catch(() => undefined)))
       .then(() => self.skipWaiting()),
   );
 });
