@@ -102,6 +102,8 @@ export type ReceiptLine = {
   inventoryAction: "ignore" | "update" | "create";
   productId?: string;
   category: ProductCategory;
+  ocrConfidence?: number;
+  reviewRequired?: boolean;
 };
 
 export type ReceiptTicket = {
@@ -110,9 +112,11 @@ export type ReceiptTicket = {
   date: string;
   subtotalCents?: number;
   taxCents?: number;
+  discountCents?: number;
   totalCents: number;
   lines: ReceiptLine[];
   rawText?: string;
+  fingerprint?: string;
   movementId: string;
   createdAt: string;
 };

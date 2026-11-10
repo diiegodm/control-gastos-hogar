@@ -3,7 +3,7 @@ import type { Note } from "../types/notes";
 import { DEFAULT_MASCOT_PROFILE, MASCOT_REWARDS, type MascotEvent, type MascotProfile, type MascotStage } from "../types/mascot";
 import type { BudgetSpace, GoalSpace, SpacesState } from "../types/spaces";
 import { DEFAULT_NOTIFICATION_PREFERENCES, type FinancialAlert, type NotificationPreferences } from "../types/notifications";
-import { todayISO } from "./date";
+import { isISODate, todayISO } from "./date";
 import { toCents } from "./money";
 import { defaultFinancialSettings } from "./cashBalance";
 
@@ -374,7 +374,9 @@ export function parseBackup(raw: unknown): BackupPayload {
     finiteNumber(item, "totalCents", label, true);
     if (item.subtotalCents !== undefined) finiteNumber(item, "subtotalCents", label, true);
     if (item.taxCents !== undefined) finiteNumber(item, "taxCents", label, true);
+    if (item.discountCents !== undefined) finiteNumber(item, "discountCents", label, true);
     optionalString(item, "rawText", label);
+    optionalString(item, "fingerprint", label);
     if (!Array.isArray(item.lines)) throw new Error(`${label}.lines debe ser una lista.`);
     const lineIds = new Set<string>();
     const lines = item.lines.map((rawLine, lineIndex) => {
@@ -387,6 +389,11 @@ export function parseBackup(raw: unknown): BackupPayload {
       const quantity = finiteNumber(line, "quantity", lineLabel);
       if (quantity <= 0) throw new Error(`${lineLabel}.quantity debe ser mayor que cero.`);
       finiteNumber(line, "unitPriceCents", lineLabel, true); finiteNumber(line, "totalCents", lineLabel, true);
+      if (line.ocrConfidence !== undefined) {
+        finiteNumber(line, "ocrConfidence", lineLabel);
+        if ((line.ocrConfidence as number) < 0 || (line.ocrConfidence as number) > 100) throw new Error(`${lineLabel}.ocrConfidence debe estar entre 0 y 100.`);
+      }
+      if (line.reviewRequired !== undefined && typeof line.reviewRequired !== "boolean") throw new Error(`${lineLabel}.reviewRequired debe ser booleano.`);
       requiredString(line, "category", lineLabel);
       if (line.inventoryAction !== "ignore" && line.inventoryAction !== "update" && line.inventoryAction !== "create") throw new Error(`${lineLabel}.inventoryAction no es válido.`);
       optionalString(line, "productId", lineLabel);
@@ -680,12 +687,52 @@ export async function saveMarketPurchaseBatch(products: MarketProduct[], purchas
   });
 }
 
+function normalizedReceipt(value: string): string {
+  return value.trim().toLocaleLowerCase("es-ES").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+}
+
+function receiptFingerprint(ticket: ReceiptTicket): string {
+  const lines = ticket.lines
+    .map((line) => [normalizedReceipt(line.description), Math.round(line.quantity * 1_000_000), line.unitPriceCents, line.totalCents])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return JSON.stringify([ticket.date, normalizedReceipt(ticket.storeName), ticket.subtotalCents ?? null, ticket.taxCents ?? null, ticket.discountCents ?? null, ticket.totalCents, lines]);
+}
+
 export async function saveReceiptTicket(ticket: ReceiptTicket, movement: Movement, products: MarketProduct[], purchases: MarketPurchase[]): Promise<void> {
-  await runTransaction(["tickets", "movements", "products", "purchases"], "readwrite", (transaction) => {
-    transaction.objectStore("tickets").add(ticket);
-    transaction.objectStore("movements").add(movement);
-    for (const product of products) transaction.objectStore("products").put(product);
-    for (const purchase of purchases) transaction.objectStore("purchases").add(purchase);
+  if (!isISODate(ticket.date)) throw new Error("La fecha del ticket no es válida.");
+  if (!Number.isSafeInteger(ticket.totalCents) || ticket.totalCents <= 0) throw new Error("El total del ticket debe ser un importe positivo válido.");
+  if ([ticket.subtotalCents, ticket.taxCents, ticket.discountCents].some((value) => value !== undefined && (!Number.isSafeInteger(value) || value < 0))) throw new Error("Subtotal, impuestos o descuentos contienen un importe no válido.");
+  if (movement.type !== "Gasto" || movement.ticketId !== ticket.id || movement.amountCents !== ticket.totalCents) throw new Error("El movimiento del ticket no coincide con el total confirmado.");
+  if (ticket.lines.some((line) => !line.description.trim() || !Number.isFinite(line.quantity) || line.quantity <= 0
+    || !Number.isSafeInteger(line.unitPriceCents) || line.unitPriceCents < 0 || !Number.isSafeInteger(line.totalCents) || line.totalCents < 0)) {
+    throw new Error("Hay productos con cantidades o importes no válidos.");
+  }
+  const fingerprint = receiptFingerprint(ticket);
+  const savedTicket = { ...ticket, fingerprint };
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    let transaction: IDBTransaction;
+    try { transaction = db.transaction(["tickets", "movements", "products", "purchases"], "readwrite"); }
+    catch (error) { reject(error); return; }
+    let failure: Error | undefined;
+    const ticketStore = transaction.objectStore("tickets");
+    const existingRequest = ticketStore.getAll();
+    existingRequest.onsuccess = () => {
+      const duplicate = (existingRequest.result as ReceiptTicket[]).some((existing) => receiptFingerprint(existing) === fingerprint);
+      if (duplicate) {
+        failure = new Error("Este ticket ya parece estar registrado. Revisa el historial para evitar duplicarlo.");
+        transaction.abort();
+        return;
+      }
+      ticketStore.add(savedTicket);
+      transaction.objectStore("movements").add(movement);
+      for (const product of products) transaction.objectStore("products").put(product);
+      for (const purchase of purchases) transaction.objectStore("purchases").add(purchase);
+    };
+    existingRequest.onerror = () => { failure = existingRequest.error ?? new Error("No se pudo comprobar si el ticket ya existe."); };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(failure ?? transaction.error ?? new Error("No se pudo guardar el ticket."));
+    transaction.onabort = () => reject(failure ?? transaction.error ?? new Error("Se canceló el guardado del ticket; no se aplicaron cambios."));
   });
 }
 
