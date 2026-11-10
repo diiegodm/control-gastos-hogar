@@ -41,9 +41,7 @@ export function LocalAccess({ auth }: { auth: Auth }) {
     <main className="flex min-h-dvh items-center justify-center bg-[#080b0f] px-5 py-10 text-slate-100">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-6 grid h-20 w-20 place-items-center rounded-[1.8rem] bg-[#a6ff00] text-4xl text-[#10140b] shadow-[0_0_45px_rgba(166,255,0,0.25)]">
-            ⌂
-          </div>
+          <img className="mx-auto mb-6 h-28 w-28 rounded-[1.8rem] object-cover shadow-[0_0_45px_rgba(166,255,0,0.2)]" src="/icons/app-icon-180.png" alt="Mascota de Finanzas Hogar" />
           <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#a6ff00]">Finanzas</p>
           <h1 className="mt-1 text-4xl font-black">Hogar</h1>
           <p className="mx-auto mt-3 max-w-xs text-sm leading-6 text-slate-400">
