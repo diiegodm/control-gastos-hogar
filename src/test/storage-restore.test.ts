@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./fixtures/backup-v1.json";
-import { configureDatabaseNameForTests, deleteFixedExpenseAndPayments, deleteFixedPayment, exportBackup, getAll, getItem, importBackup, migrateLegacyMarketPurchasesOnce, parseBackup, putItem, saveChecklistIds, saveFixedPaymentAndMovement, saveReceiptTicket } from "../lib/db";
+import { addNotificationsIfMissing, configureDatabaseNameForTests, deleteFixedExpenseAndPayments, deleteFixedPayment, exportBackup, getAll, getItem, importBackup, markNotificationsRead, migrateLegacyMarketPurchasesOnce, parseBackup, putItem, saveChecklistIds, saveFixedPaymentAndMovement, saveNotificationPreferences, saveReceiptTicket } from "../lib/db";
 import type { Movement } from "../types/finance";
 
 const localValues = new Map<string, string>();
@@ -85,7 +85,7 @@ describe("restauración de respaldos", () => {
     expect(parseBackup(packagePurchase).products[0].lastUnitPriceCents).toBe(200);
   });
 
-  it("exporta y vuelve a importar v5 con saldo inicial, mascota y cargos fijos vinculados", async () => {
+  it("exporta y vuelve a importar v6 con saldo inicial, mascota y cargos fijos vinculados", async () => {
     const v2 = parseBackup(fixture);
     await importBackup(v2);
     const fixedPayment = { id: "fixed-fixture-1__2026-01", expenseId: "fixed-fixture-1", month: "2026-01", paidAt: "2026-01-10", amountCents: 3500, movementId: "fixed-movement-1" };
@@ -96,7 +96,7 @@ describe("restauración de respaldos", () => {
     await putItem("meta", { key: "financialSettings", value: { openingBalanceCents: 125000, trackingStartMonth: "2026-01" } });
     await saveChecklistIds(["product-fixture-1"]);
     const exported = await exportBackup();
-    expect(exported.version).toBe(5);
+    expect(exported.version).toBe(6);
     expect(exported.financialSettings).toEqual({ openingBalanceCents: 125000, trackingStartMonth: "2026-01" });
     expect(exported.fixedPayments).toContainEqual(fixedPayment);
     expect(exported.movements).toContainEqual(fixedMovement);
@@ -174,5 +174,21 @@ describe("restauración de respaldos", () => {
     await expect(saveReceiptTicket(ticket, movement, [{ ...product, currentQty: 9 }], [{ ...purchase, id: "ticket-purchase-duplicate" }])).rejects.toBeTruthy();
     expect(await getAll("products")).toMatchObject([{ id: product.id, currentQty: 5 }]);
     expect(await getAll("purchases")).toEqual([purchase]);
+  });
+
+  it("deduplica avisos de forma atómica y conserva avisos y preferencias en el respaldo", async () => {
+    const alert = { id: "budget:near:2026-01:food", kind: "budget" as const, level: "warning" as const, title: "Presupuesto de Mercado casi agotado", message: "Te quedan 20,00 €.", createdAt: "2026-01-15T12:00:00.000Z" };
+    expect(await addNotificationsIfMissing([alert])).toEqual([alert]);
+    expect(await addNotificationsIfMissing([alert])).toEqual([]);
+    await saveNotificationPreferences({ inApp: { budget: false, goal: true, payment: true, spending: true }, device: false });
+    await markNotificationsRead([alert.id]);
+    const backup = await exportBackup();
+    expect(backup.version).toBe(6);
+    expect(backup.notifications).toMatchObject([{ id: alert.id, readAt: expect.any(String) }]);
+    expect(backup.notificationPreferences.inApp.budget).toBe(false);
+    expect(() => parseBackup({ ...backup, notifications: [{ ...alert, kind: "unknown" }] })).toThrow("notifications[0].kind no es válido.");
+    await importBackup(backup);
+    expect(await getAll("notifications")).toMatchObject([{ id: alert.id, readAt: expect.any(String) }]);
+    expect(await getItem("meta", "notificationPreferences")).toMatchObject({ value: { inApp: { budget: false } } });
   });
 });

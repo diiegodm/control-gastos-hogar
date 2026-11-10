@@ -1,4 +1,4 @@
-const CACHE_NAME = "finanzas-hogar-v8";
+const CACHE_NAME = "finanzas-hogar-v9";
 const APP_SHELL = [
   "/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg",
   "/mascot/sprout.png", "/mascot/leaf.png", "/mascot/guardian.png",
@@ -56,4 +56,14 @@ self.addEventListener("fetch", (event) => {
         .catch(() => caches.match("/index.html"));
     }),
   );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const destination = new URL(event.notification.data?.url || "/", self.location.origin).href;
+  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+    const existing = clients.find((client) => "focus" in client);
+    if (existing && "focus" in existing) return existing.focus();
+    return self.clients.openWindow(destination);
+  }));
 });

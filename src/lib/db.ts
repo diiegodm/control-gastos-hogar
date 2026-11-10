@@ -2,16 +2,17 @@ import type { BackupPayload, FinancialSettings, FixedExpense, FixedPayment, Mark
 import type { Note } from "../types/notes";
 import { DEFAULT_MASCOT_PROFILE, MASCOT_REWARDS, type MascotEvent, type MascotProfile, type MascotStage } from "../types/mascot";
 import type { BudgetSpace, GoalSpace, SpacesState } from "../types/spaces";
+import { DEFAULT_NOTIFICATION_PREFERENCES, type FinancialAlert, type NotificationPreferences } from "../types/notifications";
 import { todayISO } from "./date";
 import { toCents } from "./money";
 import { defaultFinancialSettings } from "./cashBalance";
 
 let databaseName = "finanzas-hogar-db";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const LEGACY_SPACES_KEY = "finanzas-hogar-spaces-v1";
 const LEGACY_NOTES_KEY = "finanzas-hogar-notes-v1";
 const LEGACY_CHECKLIST_KEY = "finanzas-hogar-market-checklist-v1";
-const DATA_STORES = ["movements", "fixedExpenses", "fixedPayments", "products", "purchases", "spaces", "notes", "tickets", "mascotEvents"] as const;
+const DATA_STORES = ["movements", "fixedExpenses", "fixedPayments", "products", "purchases", "spaces", "notes", "tickets", "mascotEvents", "notifications"] as const;
 const STORE_NAMES = [...DATA_STORES, "meta"] as const;
 type StoreName = (typeof STORE_NAMES)[number];
 type SpacesRecord = { id: "main"; state: SpacesState };
@@ -24,6 +25,7 @@ type StoreMap = {
   purchases: MarketPurchase;
   tickets: ReceiptTicket;
   mascotEvents: MascotEvent;
+  notifications: FinancialAlert;
   spaces: SpacesRecord;
   notes: Note;
   meta: MetaRecord;
@@ -247,7 +249,7 @@ function parseBackupV1(backup: Record<string, unknown>): BackupPayload {
   const spaces = backup.spaces === undefined ? EMPTY_SPACES : parseSpaces(backup.spaces, true);
   const notes = backup.notes === undefined ? [] : parseNotes(backup.notes);
   const checklistIds = backup.checklistIds === undefined ? [] : parseChecklist(backup.checklistIds);
-  return { version: 5, exportedAt: String(backup.exportedAt || new Date().toISOString()), movements, fixedExpenses, fixedPayments, products, purchases, tickets: [], spaces, notes, checklistIds, financialSettings: defaultFinancialSettings(movements, fixedPayments), mascotProfile: { ...DEFAULT_MASCOT_PROFILE }, mascotEvents: [] };
+  return { version: 6, exportedAt: String(backup.exportedAt || new Date().toISOString()), movements, fixedExpenses, fixedPayments, products, purchases, tickets: [], spaces, notes, checklistIds, financialSettings: defaultFinancialSettings(movements, fixedPayments), mascotProfile: { ...DEFAULT_MASCOT_PROFILE }, mascotEvents: [], notifications: [], notificationPreferences: structuredClone(DEFAULT_NOTIFICATION_PREFERENCES) };
 }
 
 function parseChecklist(raw: unknown): string[] {
@@ -276,10 +278,33 @@ function parseMascotData(backup: Record<string, unknown>): { mascotProfile: Masc
   return { mascotProfile: { name: name || "Plantita", onboardingComplete: profile.onboardingComplete === true, celebratedStage: celebratedStage as MascotStage }, mascotEvents };
 }
 
+function parseNotificationPreferences(raw: unknown): NotificationPreferences {
+  if (raw === undefined) return structuredClone(DEFAULT_NOTIFICATION_PREFERENCES);
+  const value = asRecord(raw, "notificationPreferences");
+  const inApp = asRecord(value.inApp, "notificationPreferences.inApp");
+  for (const kind of ["budget", "goal", "payment", "spending"] as const) {
+    if (typeof inApp[kind] !== "boolean") throw new Error(`notificationPreferences.inApp.${kind} debe ser booleano.`);
+  }
+  if (typeof value.device !== "boolean") throw new Error("notificationPreferences.device debe ser booleano.");
+  return { inApp: { budget: inApp.budget as boolean, goal: inApp.goal as boolean, payment: inApp.payment as boolean, spending: inApp.spending as boolean }, device: value.device };
+}
+
+function parseNotifications(raw: unknown): FinancialAlert[] {
+  if (raw === undefined) return [];
+  return recordArray(raw, "notifications").map((item, index) => {
+    const label = `notifications[${index}]`;
+    if (!["budget", "goal", "payment", "spending"].includes(String(item.kind))) throw new Error(`${label}.kind no es válido.`);
+    if (!["info", "warning", "critical"].includes(String(item.level))) throw new Error(`${label}.level no es válido.`);
+    requiredString(item, "title", label); requiredString(item, "message", label); requiredString(item, "createdAt", label);
+    optionalString(item, "readAt", label);
+    return item as unknown as FinancialAlert;
+  });
+}
+
 export function parseBackup(raw: unknown): BackupPayload {
   const backup = asRecord(raw, "El respaldo");
   if (backup.version === 1) return parseBackupV1(backup);
-  if (backup.version !== 2 && backup.version !== 3 && backup.version !== 4 && backup.version !== 5) throw new Error("La versión del respaldo no es compatible.");
+  if (backup.version !== 2 && backup.version !== 3 && backup.version !== 4 && backup.version !== 5 && backup.version !== 6) throw new Error("La versión del respaldo no es compatible.");
   requiredString(backup, "exportedAt", "El respaldo");
   const movements = recordArray(backup.movements, "movements").map((item, index) => {
     const label = `movements[${index}]`;
@@ -387,7 +412,9 @@ export function parseBackup(raw: unknown): BackupPayload {
     if (!movement.ticketId || !ticketIds.has(movement.ticketId)) throw new Error(`El movimiento "${movement.id}" apunta a un ticket inexistente.`);
   }
   const { mascotProfile, mascotEvents } = backup.version >= 5 ? parseMascotData(backup) : { mascotProfile: { ...DEFAULT_MASCOT_PROFILE }, mascotEvents: [] };
-  return { version: 5, exportedAt: String(backup.exportedAt), movements, fixedExpenses, fixedPayments, products, purchases, tickets, spaces, notes, checklistIds, financialSettings, mascotProfile, mascotEvents };
+  const notifications = backup.version >= 6 ? parseNotifications(backup.notifications) : [];
+  const notificationPreferences = backup.version >= 6 ? parseNotificationPreferences(backup.notificationPreferences) : structuredClone(DEFAULT_NOTIFICATION_PREFERENCES);
+  return { version: 6, exportedAt: String(backup.exportedAt), movements, fixedExpenses, fixedPayments, products, purchases, tickets, spaces, notes, checklistIds, financialSettings, mascotProfile, mascotEvents, notifications, notificationPreferences };
 }
 
 function readLegacyLocalStorage(): { spaces?: unknown; notes: Note[]; checklistIds: string[]; raw: Record<string, string | null> } {
@@ -455,7 +482,7 @@ function migrateV1(request: IDBOpenDBRequest, oldVersion: number): void {
           transaction.objectStore("mascotEvents").put(legacyProgress.event);
           transaction.objectStore("meta").put({ key: "mascotProfile", value: legacyProgress.profile } satisfies MetaRecord);
         }
-        transaction.objectStore("meta").put({ key: "schemaVersion", value: 4 } satisfies MetaRecord);
+        transaction.objectStore("meta").put({ key: "schemaVersion", value: 5 } satisfies MetaRecord);
       } catch (error) {
         abort(error);
       }
@@ -517,13 +544,14 @@ export function openDb(): Promise<IDBDatabase> {
                 transaction.objectStore("mascotEvents").put(legacyProgress.event);
                 transaction.objectStore("meta").put({ key: "mascotProfile", value: legacyProgress.profile } satisfies MetaRecord);
               }
-              transaction.objectStore("meta").put({ key: "schemaVersion", value: 4 } satisfies MetaRecord);
+              transaction.objectStore("meta").put({ key: "schemaVersion", value: 5 } satisfies MetaRecord);
             };
             movementRequest.onsuccess = () => { movementList = movementRequest.result as Movement[]; save(); };
             paymentRequest.onsuccess = () => { paymentList = paymentRequest.result as FixedPayment[]; save(); };
             spacesRequest.onsuccess = () => { spacesState = (spacesRequest.result as SpacesRecord | undefined)?.state ?? EMPTY_SPACES; save(); };
             for (const sourceRequest of [movementRequest, paymentRequest, spacesRequest]) sourceRequest.onerror = () => { migrationFailure = sourceRequest.error ?? new Error("No se pudo migrar el progreso de la mascota."); try { transaction.abort(); } catch { /* Transaction already aborted. */ } };
           }
+          if (event.oldVersion < 5) request.result.createObjectStore("notifications", { keyPath: "id" });
           upgraded = true;
         }
       } catch (error) {
@@ -752,6 +780,51 @@ export async function getChecklistIds(): Promise<string[]> {
   return Array.isArray(record?.value) ? record.value.filter((id): id is string => typeof id === "string") : [];
 }
 
+export async function addNotificationsIfMissing(candidates: FinancialAlert[]): Promise<FinancialAlert[]> {
+  if (!candidates.length) return [];
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("notifications", "readwrite");
+    const store = transaction.objectStore("notifications");
+    const added: FinancialAlert[] = [];
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      if (seen.has(candidate.id)) continue;
+      seen.add(candidate.id);
+      const request = store.get(candidate.id);
+      request.onsuccess = () => {
+        if (!request.result) { store.add(candidate); added.push(candidate); }
+      };
+    }
+    transaction.oncomplete = () => resolve(added);
+    transaction.onerror = () => reject(transaction.error ?? new Error("No se pudieron guardar los avisos."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló el guardado de los avisos."));
+  });
+}
+
+export async function markNotificationsRead(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("notifications", "readwrite");
+    const store = transaction.objectStore("notifications");
+    for (const id of new Set(ids)) {
+      const request = store.get(id);
+      request.onsuccess = () => {
+        const alert = request.result as FinancialAlert | undefined;
+        if (alert && !alert.readAt) store.put({ ...alert, readAt: new Date().toISOString() });
+      };
+    }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("No se pudieron actualizar los avisos."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Se canceló la actualización de los avisos."));
+  });
+}
+
+export async function saveNotificationPreferences(preferences: NotificationPreferences): Promise<void> {
+  await putItem("meta", { key: "notificationPreferences", value: preferences });
+}
+
 async function readSnapshot(): Promise<StoreSnapshot> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -772,12 +845,13 @@ function backupFromSnapshot(snapshot: StoreSnapshot): BackupPayload {
   const checklistIds = snapshot.meta.find((record) => record.key === "marketChecklist")?.value ?? [];
   const financialSettings = snapshot.meta.find((record) => record.key === "financialSettings")?.value;
   const mascotProfile = snapshot.meta.find((record) => record.key === "mascotProfile")?.value ?? { ...DEFAULT_MASCOT_PROFILE };
+  const notificationPreferences = snapshot.meta.find((record) => record.key === "notificationPreferences")?.value ?? DEFAULT_NOTIFICATION_PREFERENCES;
   return parseBackup({
-    version: 5, exportedAt: new Date().toISOString(), movements: snapshot.movements,
+    version: 6, exportedAt: new Date().toISOString(), movements: snapshot.movements,
     fixedExpenses: snapshot.fixedExpenses, fixedPayments: snapshot.fixedPayments,
     products: snapshot.products, purchases: snapshot.purchases, tickets: snapshot.tickets, spaces,
     notes: snapshot.notes, checklistIds, financialSettings: financialSettings ?? defaultFinancialSettings(snapshot.movements, snapshot.fixedPayments),
-    mascotProfile, mascotEvents: snapshot.mascotEvents,
+    mascotProfile, mascotEvents: snapshot.mascotEvents, notifications: snapshot.notifications, notificationPreferences,
   });
 }
 
@@ -810,6 +884,7 @@ async function replaceBackupAtomically(backup: BackupPayload): Promise<void> {
     for (const item of backup.products) transaction.objectStore("products").put(item);
     for (const item of backup.purchases) transaction.objectStore("purchases").put(item);
     for (const item of backup.tickets) transaction.objectStore("tickets").put(item);
+    for (const item of backup.notifications) transaction.objectStore("notifications").put(item);
     const linkedPurchases = new Set(backup.movements.flatMap((item) => [item.purchaseId, item.id]));
     const movementStore = transaction.objectStore("movements");
     for (const purchase of backup.purchases) {
@@ -826,6 +901,7 @@ async function replaceBackupAtomically(backup: BackupPayload): Promise<void> {
     transaction.objectStore("meta").put({ key: "marketChecklist", value: backup.checklistIds } satisfies MetaRecord);
     transaction.objectStore("meta").put({ key: "marketPurchaseMovementsMigrated", value: true } satisfies MetaRecord);
     transaction.objectStore("meta").put({ key: "financialSettings", value: backup.financialSettings } satisfies MetaRecord);
+    transaction.objectStore("meta").put({ key: "notificationPreferences", value: backup.notificationPreferences } satisfies MetaRecord);
     let existingEvents: MascotEvent[] = [];
     let existingProfile: MascotProfile = { ...DEFAULT_MASCOT_PROFILE };
     let mascotRequestsRead = 0;

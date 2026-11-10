@@ -10,7 +10,7 @@ import { useNotes } from "./hooks/useNotes";
 import { useSpaces } from "./hooks/useSpaces";
 import { useLocalAuth } from "./hooks/useLocalAuth";
 import { LocalAccess } from "./components/LocalAccess";
-import { currentYearMonth, monthOption } from "./lib/date";
+import { currentYearMonth, monthOption, todayISO } from "./lib/date";
 import { parseBackup } from "./lib/db";
 import { FloatingMascot } from "./components/FloatingMascot";
 import { MascotPanel } from "./components/MascotPanel";
@@ -20,6 +20,8 @@ import { buildMascotAdvice } from "./lib/mascotAdvice";
 import { distinctActivityDays } from "./lib/mascot";
 import { previousMonthKey } from "./lib/mascot";
 import { monthSummary } from "./lib/summary";
+import { buildFinancialAlerts } from "./lib/financialAlerts";
+import { useNotifications } from "./hooks/useNotifications";
 
 const initialMonth = currentYearMonth();
 
@@ -35,12 +37,28 @@ export default function App() {
   const hasLastMonthData = finance.movements.some((movement) => movement.date.startsWith(lastMonth))
     || finance.fixedPayments.some((payment) => payment.month === lastMonth);
   const mascot = useMascot(finance.fixedExpenses.length, finance.movements.length, hasLastMonthData);
+  const lastMonthSummary = useMemo(() => monthSummary(finance, mascot.previousMonth), [finance, mascot.previousMonth]);
+  const alertCandidates = useMemo(() => buildFinancialAlerts({
+    month: currentYearMonth(),
+    today: todayISO(),
+    budgets: spaces.budgets,
+    goals: spaces.goals,
+    categorySpending: finance.summary.categoryData,
+    currentMonthSpentCents: Math.round(finance.summary.totalSpent * 100),
+    previousMonthSpentCents: Math.round(lastMonthSummary.totalSpent * 100),
+    upcomingPayments: finance.dashboard.upcomingPayments,
+  }), [finance.dashboard.upcomingPayments, finance.summary.categoryData, finance.summary.totalSpent, lastMonthSummary.totalSpent, spaces.budgets, spaces.goals]);
+  const notifications = useNotifications(alertCandidates, !finance.loading && !spaces.loading && selectedYm === currentYearMonth());
   const auth = useLocalAuth();
   const importRef = useRef<HTMLInputElement | null>(null);
   const [mascotOpen, setMascotOpen] = useState(false);
   const [mascotMinimized, setMascotMinimized] = useState(false);
   const [mascotHidden, setMascotHidden] = useState(false);
   const [celebration, setCelebration] = useState<string>();
+
+  useEffect(() => {
+    window.dispatchEvent(new Event("finance-app-mounted"));
+  }, []);
 
   useEffect(() => {
     if (!mascot.loading && !mascot.profile.onboardingComplete) setMascotOpen(true);
@@ -72,7 +90,6 @@ export default function App() {
   });
   const weeklyIncomeCents = weekMovements.filter((item) => item.type === "Ingreso").reduce((sum, item) => sum + item.amountCents, 0);
   const weeklyExpenseCents = weekMovements.filter((item) => item.type === "Gasto").reduce((sum, item) => sum + item.amountCents, 0);
-  const lastMonthSummary = useMemo(() => monthSummary(finance, mascot.previousMonth), [finance, mascot.previousMonth]);
 
   function changeSection(next: Section) {
     setSection(next);
@@ -174,7 +191,7 @@ export default function App() {
           ) : null}
           {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
           {section === "analysis" ? <Analysis finance={finance} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
-          {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void exportCurrentBackup()} onImport={() => importRef.current?.click()} importFeedback={importFeedback} financialSettings={finance.financialSettings} onSaveFinancialSettings={finance.updateFinancialSettings} /> : null}
+          {section === "profile" ? <Profile name={auth.name} onLock={auth.lock} onExport={() => void exportCurrentBackup()} onImport={() => importRef.current?.click()} importFeedback={importFeedback} financialSettings={finance.financialSettings} onSaveFinancialSettings={finance.updateFinancialSettings} notificationPreferences={notifications.preferences} notificationPermission={notifications.permission} notificationError={notifications.error} onUpdateNotificationPreferences={notifications.updatePreferences} onEnableDeviceNotifications={notifications.requestDeviceNotifications} onDisableDeviceNotifications={notifications.disableDeviceNotifications} /> : null}
         </div>
       </main>
 
@@ -184,6 +201,8 @@ export default function App() {
         name={mascot.profile.name}
         progress={mascot.progress}
         minimized={mascotMinimized}
+        unreadCount={notifications.unreadCount}
+        latestAlertTitle={notifications.alerts.find((item) => !item.readAt)?.title}
         onOpen={() => { setCelebration(undefined); setMascotOpen(true); }}
         onToggleMinimized={() => setMascotMinimized((value) => !value)}
       /> : null}
@@ -207,6 +226,9 @@ export default function App() {
         monthlyExpenseCents={Math.round((lastMonthSummary.fixedExpenses + lastMonthSummary.variableExpenses) * 100)}
         advice={advice}
         adviceMonth={`${monthOption(selectedYm).label} ${monthOption(selectedYm).year}`}
+        alerts={notifications.alerts}
+        unreadCount={notifications.unreadCount}
+        onMarkAlertsRead={(ids) => void notifications.markRead(ids)}
         onFinish={mascot.finishOnboarding}
         onRename={mascot.rename}
         onReviewWeekly={mascot.reviewWeeklySummary}

@@ -117,7 +117,7 @@ export type ReceiptTicket = {
 };
 
 export type BackupPayload = {
-  version: 5;
+  version: 6;
   exportedAt: string;
   movements: Movement[];
   fixedExpenses: FixedExpense[];
@@ -131,6 +131,8 @@ export type BackupPayload = {
   financialSettings: FinancialSettings;
   mascotProfile: import("./mascot").MascotProfile;
   mascotEvents: import("./mascot").MascotEvent[];
+  notifications: import("./notifications").FinancialAlert[];
+  notificationPreferences: import("./notifications").NotificationPreferences;
 };
 
 export const movementCategories: MovementCategory[] = [

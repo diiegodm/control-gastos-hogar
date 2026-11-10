@@ -4,6 +4,7 @@ import { MASCOT_LEVELS, MASCOT_REWARDS, type MascotEvent, type MascotProfile } f
 import type { MascotProgress } from "../lib/mascot";
 import type { MascotAdvice } from "../lib/mascotAdvice";
 import { currency } from "../lib/money";
+import type { FinancialAlert } from "../types/notifications";
 
 type Props = {
   profile: MascotProfile;
@@ -25,6 +26,9 @@ type Props = {
   monthlyExpenseCents: number;
   advice: MascotAdvice[];
   adviceMonth: string;
+  alerts: FinancialAlert[];
+  unreadCount: number;
+  onMarkAlertsRead: (ids: string[]) => void;
   onFinish: (name: string) => Promise<void>;
   onRename: (name: string) => Promise<void>;
   onReviewWeekly: () => Promise<void>;
@@ -125,6 +129,13 @@ export function MascotPanel(props: Props) {
         </div>
 
         {profile.onboardingComplete ? <>
+          <div className="mt-5 flex items-center justify-between gap-3"><h3 className="font-black">Avisos de Plantita</h3>{props.unreadCount ? <span className="rounded-full bg-[#b7f34a] px-2.5 py-1 text-xs font-black text-[#17210d]">{props.unreadCount} nuevos</span> : <span className="text-[10px] text-slate-500">Al día</span>}</div>
+          {props.alerts.length ? <>
+            <ul className="mt-2 space-y-2">{props.alerts.slice(0, 5).map((alert) => <li key={alert.id} className={`rounded-xl border p-3 ${alert.level === "critical" ? "border-rose-400/20 bg-rose-950/30" : alert.level === "warning" ? "border-amber-300/20 bg-amber-950/20" : "border-[#b7f34a]/15 bg-[#26331d]"}`}>
+              <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black text-slate-100">{alert.title}{!alert.readAt ? <span className="ml-2 inline-block h-1.5 w-1.5 rounded-full bg-[#b7f34a] align-middle" aria-label="Nuevo" /> : null}</p><p className="mt-1 text-xs leading-5 text-slate-300">{alert.message}</p></div>{!alert.readAt ? <button type="button" onClick={() => props.onMarkAlertsRead([alert.id])} className="shrink-0 text-xs font-bold text-[#b7f34a]" aria-label={`Marcar como leído: ${alert.title}`}>Visto</button> : null}</div>
+            </li>)}</ul>
+            {props.unreadCount ? <button type="button" onClick={() => props.onMarkAlertsRead(props.alerts.filter((item) => !item.readAt).map((item) => item.id))} className="mt-2 w-full rounded-lg py-2 text-xs font-bold text-slate-400 hover:bg-white/5">Marcar todos como vistos</button> : null}
+          </> : <p className="mt-2 rounded-xl bg-[#202d35] p-3 text-sm text-slate-400">Cuando detecte un presupuesto cerca del límite, una meta cumplida o un pago próximo, te avisaré aquí.</p>}
           <div className="mt-5 flex items-center justify-between gap-3"><h3 className="font-black">Consejos para {props.adviceMonth}</h3><span className="text-[10px] text-slate-500">Basados en tus registros</span></div>
           {props.advice.length ? <ul className="mt-2 space-y-2">{props.advice.map((item) => <li key={item.id} className="rounded-xl border border-[#34454e] bg-[#1d2a32] p-3 text-sm leading-5 text-slate-200"><span className="mr-2 text-[#b7f34a]" aria-hidden="true">{item.kind === "payment" ? "◷" : item.kind === "budget" ? "▤" : "☆"}</span>{item.message}</li>)}</ul> : <p className="mt-2 rounded-xl bg-[#202d35] p-3 text-sm text-slate-400">Cuando haya un presupuesto, objetivo o pago próximo, te mostraré aquí información útil.</p>}
           <div className="mt-5 flex items-center justify-between"><h3 className="font-black">Misiones</h3><span className="text-xs text-slate-400">Semana del {weekLabel}</span></div>
