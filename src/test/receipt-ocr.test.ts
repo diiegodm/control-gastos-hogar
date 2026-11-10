@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Worker } from "tesseract.js";
 import { createReceiptRecognizer } from "../lib/receiptOcr";
-import { validateReceiptFile } from "../lib/receiptImage";
+import { prepareReceiptImage, validateReceiptFile } from "../lib/receiptImage";
 
 function fakeWorker(text = "Leche 1,20") {
   const terminate = vi.fn(async () => undefined);
@@ -21,7 +21,10 @@ function fakeWorker(text = "Leche 1,20") {
 
 const blankImage = new Blob(["image"], { type: "image/jpeg" });
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("gestión del worker OCR", () => {
   it("traduce el progreso y termina el worker tras reconocer líneas con confianza y coordenadas", async () => {
@@ -73,5 +76,41 @@ describe("validación de imágenes", () => {
     expect(validateReceiptFile({ size: 20 * 1024 * 1024 + 1, type: "image/jpeg" } as File)).toContain("20 MB");
     expect(validateReceiptFile({ size: 50, type: "application/pdf" } as File)).toContain("no parece ser una imagen");
     expect(validateReceiptFile({ size: 50, type: "image/heic" } as File)).toBeNull();
+  });
+
+  it("usa el decodificador de Safari si createImageBitmap rechaza una foto", async () => {
+    vi.stubGlobal("window", { setTimeout, clearTimeout });
+    vi.stubGlobal("createImageBitmap", vi.fn().mockRejectedValue(new Error("Formato no compatible")));
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:receipt-test");
+
+    const decodeImage = vi.fn(async () => undefined);
+    class ImageMock {
+      src = "";
+      naturalWidth = 2;
+      naturalHeight = 2;
+      decode = decodeImage;
+    }
+    vi.stubGlobal("Image", ImageMock);
+
+    const context = {
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(16) })),
+      putImageData: vi.fn(),
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => context),
+      toBlob: (callback: BlobCallback) => callback(new Blob(["prepared"], { type: "image/jpeg" })),
+    };
+    vi.stubGlobal("document", { createElement: vi.fn(() => canvas) });
+
+    const image = new File(["source"], "ticket.heic", { type: "image/heic" });
+    const prepared = await prepareReceiptImage(image);
+
+    expect(prepared.type).toBe("image/jpeg");
+    expect(decodeImage).toHaveBeenCalledOnce();
+    expect(revoke).toHaveBeenCalledWith("blob:receipt-test");
   });
 });

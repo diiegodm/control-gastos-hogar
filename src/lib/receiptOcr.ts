@@ -1,5 +1,4 @@
 import { createWorker, PSM, type Worker } from "tesseract.js";
-import workerPath from "./receiptWorker.ts?worker&url";
 import { prepareReceiptImage } from "./receiptImage";
 import type { ReceiptTextLine } from "./receiptParser";
 
@@ -57,10 +56,10 @@ function readableError(error: unknown): Error {
 }
 
 export async function recognizeReceipt(file: File, onProgress: (progress: OcrProgress) => void): Promise<ReceiptOcrResult> {
-    const image = await prepareReceiptImage(file);
+  const image = await prepareReceiptImage(file);
   const base = import.meta.env.BASE_URL;
   return receiptRecognizer(image, onProgress, (logger) => createWorker("spa", 1, {
-    workerPath,
+    workerPath: `${base}ocr/receipt-worker.js`,
     workerBlobURL: false,
     corePath: `${base}ocr/core`,
     langPath: `${base}ocr/lang`,
