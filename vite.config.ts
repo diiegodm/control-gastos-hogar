@@ -9,6 +9,11 @@ export default defineConfig({
       "wasm-feature-detect": fileURLToPath(new URL("./src/lib/wasmFeatureDetectShim.ts", import.meta.url)),
     },
   },
+  worker: {
+    rollupOptions: {
+      output: { entryFileNames: "assets/receipt-worker.js" },
+    },
+  },
   server: {
     host: "0.0.0.0",
     port: 5173,

@@ -22,6 +22,7 @@ import {
 import {
   daysUntil,
   dueDateForMonth,
+  isISODate,
   isSameMonth,
   statusColorByDays,
   todayISO,
@@ -536,10 +537,17 @@ export function useFinance(selectedYm: string) {
     totalCents: number;
     subtotalCents?: number;
     taxCents?: number;
+    discountCents?: number;
     lines: ReceiptLine[];
     rawText: string;
   }) => {
     if (!Number.isInteger(input.totalCents) || input.totalCents <= 0) throw new Error("El total del ticket debe ser mayor que cero.");
+    if (!isISODate(input.date)) throw new Error("La fecha del ticket no es válida.");
+    if ([input.subtotalCents, input.taxCents, input.discountCents].some((value) => value !== undefined && (!Number.isSafeInteger(value) || value < 0))) throw new Error("Revisa el subtotal, los impuestos y los descuentos.");
+    if (!Array.isArray(input.lines) || input.lines.some((line) => !line.description.trim() || !Number.isFinite(line.quantity) || line.quantity <= 0
+      || !Number.isSafeInteger(line.unitPriceCents) || line.unitPriceCents < 0 || !Number.isSafeInteger(line.totalCents) || line.totalCents < 0)) {
+      throw new Error("Revisa los nombres, cantidades y precios de los productos antes de confirmar.");
+    }
     const id = createId("ticket");
     const now = new Date().toISOString();
     const byName = new Map(state.products.map((product) => [normalizeProductName(product.product), product]));
@@ -594,6 +602,7 @@ export function useFinance(selectedYm: string) {
       totalCents: input.totalCents,
       subtotalCents: input.subtotalCents,
       taxCents: input.taxCents,
+      discountCents: input.discountCents,
       lines,
       rawText: input.rawText,
       movementId,

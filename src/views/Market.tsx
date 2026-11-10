@@ -8,8 +8,9 @@ import { getChecklistIds, saveChecklistIds } from "../lib/db";
 import type { useFinance } from "../hooks/useFinance";
 import type { MarketProduct, ProductCategory, ReceiptLine } from "../types/finance";
 import { productCategories } from "../types/finance";
-import { parseReceiptText, ticketLinesMismatch, type ParsedReceipt } from "../lib/receiptParser";
+import { parseReceiptText, receiptLineAmountMismatch, ticketLinesMismatch, type ParsedReceipt } from "../lib/receiptParser";
 import type { OcrProgress } from "../lib/receiptOcr";
+import { validateReceiptFile } from "../lib/receiptImage";
 
 type Finance = ReturnType<typeof useFinance>;
 type Tab = "comprar" | "inventario" | "historial" | "tickets";
@@ -38,19 +39,32 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const scanningRef = useRef(false);
   const [error, setError] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  async function scan(file?: File) {
+  async function scan(file?: File, input?: HTMLInputElement) {
     if (!file) return;
+    if (scanningRef.current) { if (input) input.value = ""; return; }
+    scanningRef.current = true;
+    const fileError = validateReceiptFile(file);
+    if (fileError) {
+      setError(fileError);
+      scanningRef.current = false;
+      if (input) input.value = "";
+      return;
+    }
     setError("");
+    setDraft(null);
+    setRawText("");
     setScanning(true);
-    setProgress({ status: "Preparando OCR local", progress: 0 });
+    setProgress({ status: "Preparando la foto", progress: 0 });
     try {
       const { recognizeReceipt } = await import("../lib/receiptOcr");
-      const text = await recognizeReceipt(file, setProgress);
-      setRawText(text);
-      const parsed = parseReceiptText(text);
+      const result = await recognizeReceipt(file, setProgress);
+      const orderedText = result.lines.length ? result.lines.map((line) => line.text).join("\n") : result.text;
+      setRawText(result.text);
+      const parsed = parseReceiptText(orderedText, todayISO(), result.lines);
       setDraft({
         ...parsed,
         lines: parsed.lines.map((line) => {
@@ -66,6 +80,8 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
     } finally {
       setScanning(false);
       setProgress(null);
+      scanningRef.current = false;
+      if (input) input.value = "";
     }
   }
 
@@ -75,8 +91,8 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
       lines: current.lines.map((line, lineIndex) => {
         if (lineIndex !== index) return line;
         const next = { ...line, ...changes };
-        if (changes.quantity !== undefined) next.unitPriceCents = Math.round(next.totalCents / next.quantity);
-        if (changes.totalCents !== undefined) next.unitPriceCents = Math.round(next.totalCents / next.quantity);
+        if (changes.quantity !== undefined || changes.unitPriceCents !== undefined) next.totalCents = Math.round(next.unitPriceCents * next.quantity);
+        if (changes.totalCents !== undefined) next.unitPriceCents = next.quantity > 0 ? Math.round(next.totalCents / next.quantity) : 0;
         return next;
       }),
     } : current);
@@ -87,9 +103,12 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
     const total = parseAmount(String(formData.get("receipt-total") ?? ""));
     const subtotalText = String(formData.get("receipt-subtotal") ?? "").trim();
     const taxText = String(formData.get("receipt-tax") ?? "").trim();
+    const discountText = String(formData.get("receipt-discount") ?? "").trim();
     const subtotal = subtotalText ? parseAmount(subtotalText) : null;
     const tax = taxText ? parseAmount(taxText) : null;
+    const discount = discountText ? parseAmount(discountText) : null;
     if (total === null || total <= 0 || (subtotalText && subtotal === null) || (taxText && tax === null)
+      || (discountText && discount === null)
       || draft.lines.some((line) => !line.description.trim() || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isInteger(line.totalCents) || line.totalCents < 0)) {
       setError("Revisa el total y los importes antes de guardar.");
       return;
@@ -104,6 +123,7 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
         totalCents: toCents(total),
         subtotalCents: subtotal === null ? undefined : toCents(subtotal),
         taxCents: tax === null ? undefined : toCents(tax),
+        discountCents: discount === null ? undefined : toCents(discount),
         lines: draft.lines,
         rawText,
       });
@@ -125,11 +145,11 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
         <div className="mt-4 grid grid-cols-2 gap-2">
           <label className="btn-primary cursor-pointer text-center">
             Usar cámara
-            <input className="sr-only" type="file" accept="image/*" capture="environment" disabled={scanning} onChange={(event) => void scan(event.currentTarget.files?.[0])} />
+            <input className="sr-only" type="file" accept="image/*" capture="environment" disabled={scanning} onChange={(event) => { const input = event.currentTarget; void scan(input.files?.[0], input); }} />
           </label>
           <label className="btn-secondary cursor-pointer text-center">
             Elegir foto
-            <input className="sr-only" type="file" accept="image/*" disabled={scanning} onChange={(event) => void scan(event.currentTarget.files?.[0])} />
+            <input className="sr-only" type="file" accept="image/*" disabled={scanning} onChange={(event) => { const input = event.currentTarget; void scan(input.files?.[0], input); }} />
           </label>
         </div>
         {scanning && progress ? (
@@ -155,15 +175,17 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
               <label className="grid gap-1 text-sm font-bold text-slate-600">Total<input className="input" name="receipt-total" inputMode="decimal" defaultValue={draft.totalCents === undefined ? "" : fromCents(draft.totalCents)} required /></label>
               <label className="grid gap-1 text-sm font-bold text-slate-600">Subtotal (opcional)<input className="input" name="receipt-subtotal" inputMode="decimal" defaultValue={draft.subtotalCents === undefined ? "" : fromCents(draft.subtotalCents)} /></label>
               <label className="grid gap-1 text-sm font-bold text-slate-600">Impuestos (opcional)<input className="input" name="receipt-tax" inputMode="decimal" defaultValue={draft.taxCents === undefined ? "" : fromCents(draft.taxCents)} /></label>
+              <label className="grid gap-1 text-sm font-bold text-slate-600">Descuentos (opcional)<input className="input" name="receipt-discount" inputMode="decimal" defaultValue={draft.discountCents === undefined ? "" : fromCents(draft.discountCents)} /></label>
             </div>
             <div className="flex items-center justify-between"><h3 className="font-black text-slate-900">Productos detectados</h3><button className="btn-secondary" type="button" onClick={() => setDraft((current) => current ? { ...current, lines: [...current.lines, { id: `manual_${crypto.randomUUID()}`, description: "", quantity: 1, unitPriceCents: 0, totalCents: 0, inventoryAction: "create", category: "Despensa" }] } : current)}>+ Añadir línea</button></div>
             {draft.lines.length ? draft.lines.map((line, index) => (
               <div key={line.id} className="space-y-2 rounded-xl border border-slate-200 p-3">
-                <div className="grid gap-2 sm:grid-cols-[1fr_8rem_8rem_auto]">
-                  <input className="input" aria-label="Producto del ticket" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} required />
-                  <input className="input" aria-label="Cantidad" type="number" min="0.01" step="any" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} required />
-                  <input className="input" aria-label="Importe de la línea" inputMode="decimal" value={fromCents(line.totalCents)} onChange={(event) => { const amount = parseAmount(event.target.value); if (amount !== null) updateLine(index, { totalCents: toCents(amount) }); }} required />
-                  <button className="btn-danger" type="button" aria-label={`Quitar ${line.description || "línea"}`} onClick={() => setDraft((current) => current ? { ...current, lines: current.lines.filter((_, lineIndex) => lineIndex !== index) } : current)}>Quitar</button>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(10rem,1fr)_6rem_7rem_7rem_auto]">
+                  <div className="col-span-2 sm:col-span-1"><input className="input w-full" aria-label="Producto del ticket" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} required />{line.reviewRequired ? <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">Revisar lectura{line.ocrConfidence === undefined ? "" : ` · ${line.ocrConfidence}%`}</span> : null}</div>
+                  <input className="input min-w-0" aria-label="Cantidad" type="number" min="0.001" step="any" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} required />
+                  <input className="input min-w-0" aria-label="Precio unitario" inputMode="decimal" value={fromCents(line.unitPriceCents)} onChange={(event) => { const amount = parseAmount(event.target.value); if (amount !== null) updateLine(index, { unitPriceCents: toCents(amount) }); }} required />
+                  <input className="input min-w-0" aria-label="Importe de la línea" inputMode="decimal" value={fromCents(line.totalCents)} onChange={(event) => { const amount = parseAmount(event.target.value); if (amount !== null) updateLine(index, { totalCents: toCents(amount) }); }} required />
+                  <button className="btn-danger col-span-2 sm:col-span-1" type="button" aria-label={`Quitar ${line.description || "línea"}`} onClick={() => setDraft((current) => current ? { ...current, lines: current.lines.filter((_, lineIndex) => lineIndex !== index) } : current)}>Quitar</button>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <select className="input" aria-label="Acción de inventario" value={line.inventoryAction === "update" ? `update:${line.productId}` : line.inventoryAction} onChange={(event) => {
@@ -180,7 +202,8 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
                 </div>
               </div>
             )) : <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">No hay líneas detectadas. Puedes registrar el total y añadir productos manualmente.</p>}
-            {draft.totalCents !== undefined && ticketLinesMismatch(draft.lines, draft.totalCents) ? <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">La suma de las líneas no coincide con el total. Comprueba el ticket; el gasto registrado será exactamente el total indicado.</p> : null}
+            {draft.lines.some(receiptLineAmountMismatch) ? <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">En una o más líneas, cantidad × precio unitario no coincide con el importe. Revisa los tres valores; no se corregirán automáticamente.</p> : null}
+            {draft.totalCents !== undefined && ticketLinesMismatch(draft.lines, draft.totalCents, draft.discountCents) ? <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">La suma de productos menos descuentos no coincide con el total. Comprueba el ticket; el gasto registrado será exactamente el total indicado.</p> : null}
             {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</p> : null}
             <button className="btn-primary w-full" type="submit" disabled={saving}>{saving ? "Guardando ticket…" : "Confirmar ticket"}</button>
           </form>
@@ -196,7 +219,7 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
                 <span><strong className="block text-slate-900">{ticket.storeName}</strong><span className="text-sm text-slate-500">{formatLongDate(ticket.date)} · {ticket.lines.length} productos</span></span>
                 <strong className="text-slate-950">{currency(fromCents(ticket.totalCents))}</strong>
               </button>
-              {expandedId === ticket.id ? <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-sm">{ticket.lines.map((line) => <p key={line.id} className="flex justify-between gap-3 text-slate-700"><span>{line.description} · {line.quantity} · {line.inventoryAction === "ignore" ? "solo ticket" : line.inventoryAction === "create" ? "añadido al inventario" : "inventario actualizado"}</span><span>{currency(fromCents(line.totalCents))}</span></p>)}</div> : null}
+              {expandedId === ticket.id ? <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-sm">{ticket.lines.map((line) => <p key={line.id} className="flex justify-between gap-3 text-slate-700"><span>{line.description} · {line.quantity} · {line.inventoryAction === "ignore" ? "solo ticket" : line.inventoryAction === "create" ? "añadido al inventario" : "inventario actualizado"}</span><span>{currency(fromCents(line.totalCents))}</span></p>)}{ticket.subtotalCents !== undefined ? <p className="flex justify-between border-t border-slate-200 pt-2 text-slate-500"><span>Subtotal</span><span>{currency(fromCents(ticket.subtotalCents))}</span></p> : null}{ticket.taxCents !== undefined ? <p className="flex justify-between text-slate-500"><span>Impuestos</span><span>{currency(fromCents(ticket.taxCents))}</span></p> : null}{ticket.discountCents ? <p className="flex justify-between text-emerald-700"><span>Descuentos</span><span>−{currency(fromCents(ticket.discountCents))}</span></p> : null}</div> : null}
             </div>
           )) : <EmptyState title="Sin tickets" body="Los tickets confirmados aparecerán aquí, con sus productos y total." />}
         </div>

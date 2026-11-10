@@ -184,14 +184,28 @@ describe("restauración de respaldos", () => {
     expect(await getAll("products")).toMatchObject([{ id: product.id, currentQty: 5 }]);
     expect(await getAll("purchases")).toEqual([purchase]);
     const exported = await exportBackup();
-    expect(exported.tickets).toEqual([ticket]);
+    expect(exported.tickets).toMatchObject([{ ...ticket, fingerprint: expect.any(String) }]);
+    expect(exported.purchases).toEqual([purchase]);
     expect(exported.movements).toContainEqual(movement);
     await importBackup(exported);
-    expect(await getAll("tickets")).toEqual([ticket]);
+    expect(await getAll("tickets")).toMatchObject([{ ...ticket, fingerprint: expect.any(String) }]);
 
-    await expect(saveReceiptTicket(ticket, movement, [{ ...product, currentQty: 9 }], [{ ...purchase, id: "ticket-purchase-duplicate" }])).rejects.toBeTruthy();
+    await expect(saveReceiptTicket({ ...ticket, id: "ticket-two", movementId: "ticket_ticket-two" }, { ...movement, id: "ticket_ticket-two", ticketId: "ticket-two" }, [{ ...product, currentQty: 9 }], [{ ...purchase, id: "purchase-two" }])).rejects.toThrow("Este ticket ya parece estar registrado");
     expect(await getAll("products")).toMatchObject([{ id: product.id, currentQty: 5 }]);
     expect(await getAll("purchases")).toEqual([purchase]);
+
+    const differentTicket = { ...ticket, id: "ticket-three", date: "2026-01-13", movementId: "ticket_ticket-three" };
+    const differentMovement: Movement = { ...movement, id: differentTicket.movementId, ticketId: differentTicket.id, date: differentTicket.date };
+    const stateBeforeRollback = {
+      tickets: await getAll("tickets"),
+      movements: await getAll("movements"),
+      products: await getAll("products"),
+      purchases: await getAll("purchases"),
+    };
+    await expect(saveReceiptTicket(differentTicket, differentMovement, [{ ...product, currentQty: 8 }], [purchase]))
+      .rejects.toThrow();
+    await expect(Promise.all([getAll("tickets"), getAll("movements"), getAll("products"), getAll("purchases")]))
+      .resolves.toEqual(Object.values(stateBeforeRollback));
   });
 
   it("deduplica avisos de forma atómica y conserva avisos y preferencias en el respaldo", async () => {

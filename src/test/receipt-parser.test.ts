@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReceiptText, ticketLinesMismatch } from "../lib/receiptParser";
+import { parseReceiptText, receiptLineAmountMismatch, ticketLinesMismatch } from "../lib/receiptParser";
 
 describe("lectura de datos de ticket", () => {
   it("extrae comercio, fecha, líneas y total en formato español", () => {
@@ -39,5 +39,55 @@ describe("lectura de datos de ticket", () => {
     expect(receipt.warnings).toContain("No se detectó con seguridad el total del ticket. Revísalo antes de guardar.");
     expect(ticketLinesMismatch(receipt.lines, 125)).toBe(true);
     expect(ticketLinesMismatch(receipt.lines, 120)).toBe(false);
+  });
+
+  it("reconoce el ticket de referencia Hiper Kyra y no convierte el cambio en producto", () => {
+    const receipt = parseReceiptText([
+      "HIPER KYRA",
+      "01/11/2026",
+      "Marcador permanente: 1 × 1,95 € = 1,95 €",
+      "Cinta de pintor: 8 × 0,75 € = 6,00 €",
+      "Cambio 0,05 €",
+      "TOTAL 7,95 €",
+    ].join("\n"), "2026-11-01");
+
+    expect(receipt.lines.map(({ description, quantity, unitPriceCents, totalCents }) => ({ description, quantity, unitPriceCents, totalCents }))).toEqual([
+      { description: "Marcador permanente", quantity: 1, unitPriceCents: 195, totalCents: 195 },
+      { description: "Cinta de pintor", quantity: 8, unitPriceCents: 75, totalCents: 600 },
+    ]);
+    expect(receipt.totalCents).toBe(795);
+    expect(ticketLinesMismatch(receipt.lines, 795)).toBe(false);
+  });
+
+  it("reconoce unidades por peso, subtotal, IVA y descuentos sin alterar el total", () => {
+    const receipt = parseReceiptText([
+      "SUPERMERCADO",
+      "Pechuga de pollo 0,620 kg 6,25 €/kg 3,88 €",
+      "Arroz 2 uds 1,50 € 3,00 €",
+      "Descuento promoción -0,50 €",
+      "Subtotal 6,38 €",
+      "IVA 0,50 €",
+      "TOTAL 6,38 €",
+    ].join("\n"), "2026-11-01");
+
+    expect(receipt.lines.map(({ description, quantity, unitPriceCents, totalCents }) => ({ description, quantity, unitPriceCents, totalCents }))).toEqual([
+      { description: "Pechuga de pollo", quantity: 0.62, unitPriceCents: 625, totalCents: 388 },
+      { description: "Arroz", quantity: 2, unitPriceCents: 150, totalCents: 300 },
+    ]);
+    expect(receipt.discountCents).toBe(50);
+    expect(receipt.subtotalCents).toBe(638);
+    expect(receipt.taxCents).toBe(50);
+    expect(receipt.totalCents).toBe(638);
+    expect(ticketLinesMismatch(receipt.lines, 638, 50)).toBe(false);
+  });
+
+  it("señala líneas con baja confianza y no cuadra valores incoherentes", () => {
+    const receipt = parseReceiptText("TIENDA\nLeche 2 uds 0,90 € 1,99 €\nTOTAL 1,99 €", "2026-11-01", [
+      { text: "Leche 2 uds 0,90 € 1,99 €", confidence: 32, bbox: { x0: 5, y0: 10, x1: 200, y1: 28 } },
+    ]);
+    expect(receipt.lines[0]).toMatchObject({ ocrConfidence: 32, reviewRequired: true });
+    expect(receipt.warnings).toContain("Hay productos dudosos. Revisa las cantidades e importes marcados antes de confirmar.");
+    expect(receiptLineAmountMismatch(receipt.lines[0])).toBe(true);
+    expect(receipt.totalCents).toBe(199);
   });
 });
