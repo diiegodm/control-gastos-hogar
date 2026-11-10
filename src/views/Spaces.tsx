@@ -29,6 +29,10 @@ export function Spaces({ finance, notes, spaces, selectedYm, onMonthChange }: Pr
   const [showBudget, setShowBudget] = useState(false);
   const [showGoal, setShowGoal] = useState(false);
   const [formError, setFormError] = useState("");
+  const [contributionGoalId, setContributionGoalId] = useState<string | null>(null);
+  const [contributionAmount, setContributionAmount] = useState("");
+  const [contributionError, setContributionError] = useState("");
+  const [savingContribution, setSavingContribution] = useState(false);
   const activeBudgets = spaces.budgets.filter((space) => !space.archived);
   const activeGoals = spaces.goals.filter((space) => !space.archived);
   const spendingByBudget = useMemo(() => {
@@ -75,6 +79,23 @@ export function Spaces({ finance, notes, spaces, selectedYm, onMonthChange }: Pr
     setFormError("");
     spaces.saveGoal({ name: String(form.get("name")).trim(), categoryName: String(form.get("categoryName")).trim(), targetCents: toCents(target), icon: String(form.get("icon") || "☆"), color: String(form.get("color") || colors[0]) });
     setShowGoal(false);
+  }
+
+  async function submitContribution(event: FormEvent<HTMLFormElement>, goal: GoalSpace) {
+    event.preventDefault();
+    const amount = parseAmount(contributionAmount);
+    if (amount === null || amount <= 0) { setContributionError("Escribe un importe válido mayor que cero."); return; }
+    setContributionError("");
+    setSavingContribution(true);
+    try {
+      await spaces.contribute(goal.id, toCents(amount));
+      setContributionGoalId(null);
+      setContributionAmount("");
+    } catch (error) {
+      setContributionError(error instanceof Error ? error.message : "No se pudo guardar la aportación.");
+    } finally {
+      setSavingContribution(false);
+    }
   }
 
   function editBudget(space: BudgetSpace) {
@@ -140,7 +161,8 @@ export function Spaces({ finance, notes, spaces, selectedYm, onMonthChange }: Pr
         const pct = Math.min(100, goal.savedCents / goal.targetCents * 100);
         return <Card key={goal.id}>
           <div className="flex items-center gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl text-xl" style={{ background: `${goal.color}22`, color: goal.color }}>{goal.icon}</span><div className="min-w-0 flex-1"><div className="flex justify-between gap-3"><p className="truncate font-black">{goal.name}</p><p className="text-sm font-bold">{Math.round(pct)}%</p></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-[#30383b]"><div className="h-full rounded-full" style={{ width: `${pct}%`, background: goal.color }} /></div><p className="mt-1 text-xs text-slate-400">{currencyCents(goal.savedCents)} de {currencyCents(goal.targetCents)}</p></div></div>
-          <div className="mt-3 flex flex-wrap justify-end gap-2"><button className="btn-primary !min-h-9" type="button" onClick={() => { const raw = prompt("Aportación al objetivo (€)"); if (raw === null) return; const amount = parseAmount(raw); if (amount === null || amount <= 0) { setFormError("La aportación debe ser un importe válido mayor que cero."); return; } setFormError(""); spaces.contribute(goal.id, toCents(amount)); }}>+ Aportar</button><button className="btn-secondary !min-h-9" type="button" onClick={() => editGoal(goal)}>Editar</button><button className="btn-secondary !min-h-9" type="button" onClick={() => spaces.archive("goal", goal.id)}>Archivar</button><button className="btn-danger !min-h-9" type="button" onClick={() => { if (confirm("¿Eliminar este objetivo?")) spaces.remove("goal", goal.id); }}>Eliminar</button></div>
+          <div className="mt-3 flex flex-wrap justify-end gap-2"><button className="btn-primary !min-h-9" type="button" onClick={() => { setContributionGoalId(contributionGoalId === goal.id ? null : goal.id); setContributionAmount(""); setContributionError(""); }}>+ Aportar</button><button className="btn-secondary !min-h-9" type="button" onClick={() => editGoal(goal)}>Editar</button><button className="btn-secondary !min-h-9" type="button" onClick={() => spaces.archive("goal", goal.id)}>Archivar</button><button className="btn-danger !min-h-9" type="button" onClick={() => { if (confirm("¿Eliminar este objetivo?")) spaces.remove("goal", goal.id); }}>Eliminar</button></div>
+          {contributionGoalId === goal.id ? <form className="mt-3 grid gap-2 rounded-xl border border-[#3a484e] bg-[#182228] p-3" onSubmit={(event) => void submitContribution(event, goal)}><label className="text-sm font-bold text-slate-300" htmlFor={`contribution-${goal.id}`}>¿Cuánto quieres aportar?</label><input className="input" id={`contribution-${goal.id}`} type="text" inputMode="decimal" placeholder="Ej. 50,00 €" value={contributionAmount} onChange={(event) => setContributionAmount(event.target.value)} aria-invalid={Boolean(contributionError)} aria-describedby={contributionError ? `contribution-error-${goal.id}` : undefined} /><div className="flex gap-2"><button className="btn-primary flex-1" type="submit" disabled={savingContribution}>{savingContribution ? "Guardando…" : "Confirmar aportación"}</button><button className="btn-secondary" type="button" disabled={savingContribution} onClick={() => { setContributionGoalId(null); setContributionError(""); }}>Cancelar</button></div>{contributionError ? <p className="text-sm font-semibold text-rose-300" id={`contribution-error-${goal.id}`} role="alert">{contributionError}</p> : null}</form> : null}
           {goal.contributions?.length ? <div className="mt-3 border-t border-[#34434c] pt-3"><p className="mb-2 text-xs font-bold uppercase text-slate-400">Aportaciones recientes</p><div className="flex flex-wrap gap-2">{goal.contributions.slice(-3).reverse().map((entry, index) => <span key={`${entry.date}-${index}`} className="rounded-lg bg-[#26343c] px-2.5 py-1.5 text-xs font-semibold text-slate-300">+{currencyCents(entry.amountCents)} · {new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "short" }).format(new Date(entry.date))}</span>)}</div></div> : null}
           <p className="mt-2 text-xs text-slate-500">Las aportaciones se guardan como ahorro y no se cuentan como gasto.</p>
         </Card>;

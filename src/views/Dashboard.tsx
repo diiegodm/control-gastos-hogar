@@ -61,9 +61,10 @@ export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, on
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-[#303b40] bg-[#192229] p-3"><p className="text-xs font-bold text-slate-400">Resultado del mes</p><p className={`mt-1 font-black ${dashboard.monthlyResult >= 0 ? "text-[#b5ff4a]" : "text-rose-400"}`}>{currency(dashboard.monthlyResult)}</p></div>
         <div className="rounded-xl border border-[#303b40] bg-[#192229] p-3"><p className="text-xs font-bold text-slate-400">Saldo heredado</p><p className="mt-1 font-black text-slate-100">{dashboard.trackingStarted ? currency(dashboard.inheritedBalance) : "—"}</p></div>
+        <div className="rounded-xl border border-[#303b40] bg-[#192229] p-3"><p className="text-xs font-bold text-slate-400">Ahorro apartado</p><p className="mt-1 font-black text-[#b5ff4a]">{currency(dashboard.goalContributions)}</p></div>
       </div>
       {dashboard.possibleDuplicatePayments > 0 ? <p role="status" className="rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm text-amber-200">Algunos pagos fijos antiguos coinciden con varios movimientos. El saldo no puede deduplicarlos automáticamente; revisa esos registros en Espacios · Movimientos.</p> : null}
 

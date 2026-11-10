@@ -35,6 +35,7 @@ export type Movement = {
   purchaseId?: string;
   ticketId?: string;
   fixedPaymentId?: string;
+  goalId?: string;
   generatedByFixedPayment?: boolean;
   description: string;
   amountCents: number;
