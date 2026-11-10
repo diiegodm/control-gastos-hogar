@@ -91,3 +91,14 @@ button { -webkit-tap-highlight-color: transparent; }
 body[data-fixed-modal="open"] #root nav { display: none; }
 #root .bg-app { background-color: #111820 !important; }
 #root .shadow-soft { box-shadow: 0 14px 36px rgb(0 0 0 / 24%); }
+
+@keyframes mascot-alert-pulse {
+  0%, 100% { box-shadow: 0 8px 28px rgb(0 0 0 / 35%), 0 0 0 0 rgb(183 243 74 / 22%); }
+  50% { box-shadow: 0 8px 28px rgb(0 0 0 / 35%), 0 0 0 5px rgb(183 243 74 / 0%); }
+}
+
+.mascot-alert-pulse { animation: mascot-alert-pulse 2.8s ease-out 3; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot-alert-pulse { animation: none; }
+}

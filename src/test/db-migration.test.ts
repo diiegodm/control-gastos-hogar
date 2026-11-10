@@ -34,7 +34,7 @@ async function seedV1(name: string, data: typeof fixture): Promise<void> {
   });
 }
 
-describe("migración atómica IndexedDB hasta v4", () => {
+describe("migración atómica IndexedDB hasta v5", () => {
   beforeEach(() => values.clear());
 
   it("migra el fixture, espacios, notas y checklist y guarda copia del origen", async () => {
@@ -49,8 +49,9 @@ describe("migración atómica IndexedDB hasta v4", () => {
     await seedV1(name, legacy);
 
     const db = await openDb();
-    expect(db.version).toBe(4);
+    expect(db.version).toBe(5);
     expect(db.objectStoreNames.contains("mascotEvents")).toBe(true);
+    expect(db.objectStoreNames.contains("notifications")).toBe(true);
     await expect(getAll("movements")).resolves.toMatchObject([{ id: "mov-fixture-1", amountCents: 4250 }]);
     await expect(getAll("fixedExpenses")).resolves.toMatchObject([{ id: "fixed-fixture-1", amountCents: 3500, startMonth: "2026-01" }]);
     await expect(getAll("fixedPayments")).resolves.toMatchObject([{ id: "fixed-fixture-1__2026-02", month: "2026-02", amountCents: 3500 }]);
@@ -64,7 +65,7 @@ describe("migración atómica IndexedDB hasta v4", () => {
     expect(values.size).toBe(0);
   });
 
-  it("añade tickets y el progreso de Plantita al esquema v2 sin modificar datos existentes", async () => {
+  it("añade tickets, progreso y avisos desde un esquema anterior sin modificar datos existentes", async () => {
     const name = "migration-v2-to-v3";
     configureDatabaseNameForTests(name);
     await new Promise<void>((resolve, reject) => {
@@ -80,9 +81,10 @@ describe("migración atómica IndexedDB hasta v4", () => {
     });
 
     const db = await openDb();
-    expect(db.version).toBe(4);
+    expect(db.version).toBe(5);
     expect(db.objectStoreNames.contains("tickets")).toBe(true);
     expect(db.objectStoreNames.contains("mascotEvents")).toBe(true);
+    expect(db.objectStoreNames.contains("notifications")).toBe(true);
     await expect(getAll("products")).resolves.toEqual([{ id: "keep-me", product: "Leche", currentQty: 4 }]);
     await expect(getAll("tickets")).resolves.toEqual([]);
   });

@@ -19,11 +19,14 @@
     </div>
     <script>
       (() => {
+        let startupTimer;
         const showStartupError = (message) => {
           const root = document.getElementById("root");
           if (!root?.querySelector("#startup-message")) return;
           root.innerHTML = `<main style="min-height:100dvh;display:grid;place-items:center;padding:24px;background:#f8fafc;color:#0f172a;font:16px system-ui,sans-serif"><section style="max-width:560px"><h1 style="font-size:24px">No se pudo iniciar la aplicación</h1><p style="white-space:pre-wrap;color:#475569">${String(message).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[char])}</p><button onclick="location.reload()" style="padding:12px 18px;border:0;border-radius:12px;background:#a6ff00;font-weight:700">Volver a intentar</button></section></main>`;
         };
+        startupTimer = window.setTimeout(() => showStartupError("La aplicación no terminó de cargar. Comprueba que abriste la dirección local más reciente y vuelve a cargar la página."), 12000);
+        window.addEventListener("finance-app-mounted", () => window.clearTimeout(startupTimer), { once: true });
         window.addEventListener("error", (event) => showStartupError(event.message || "Error al cargar un recurso."));
         window.addEventListener("unhandledrejection", (event) => showStartupError(event.reason?.message || String(event.reason || "Error inesperado.")));
       })();
