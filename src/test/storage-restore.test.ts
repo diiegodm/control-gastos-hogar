@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./fixtures/backup-v1.json";
-import { addNotificationsIfMissing, configureDatabaseNameForTests, deleteFixedExpenseAndPayments, deleteFixedPayment, exportBackup, getAll, getItem, importBackup, markNotificationsRead, migrateLegacyMarketPurchasesOnce, parseBackup, putItem, saveChecklistIds, saveFixedPaymentAndMovement, saveNotificationPreferences, saveReceiptTicket } from "../lib/db";
+import { addNotificationsIfMissing, contributeToGoal, configureDatabaseNameForTests, deleteFixedExpenseAndPayments, deleteFixedPayment, exportBackup, getAll, getItem, importBackup, markNotificationsRead, migrateLegacyMarketPurchasesOnce, parseBackup, putItem, saveChecklistIds, saveFixedPaymentAndMovement, saveNotificationPreferences, saveReceiptTicket } from "../lib/db";
 import type { Movement } from "../types/finance";
 
 const localValues = new Map<string, string>();
@@ -65,6 +65,24 @@ describe("restauración de respaldos", () => {
     await expect(getAll("products")).resolves.toMatchObject([{ id: "product-fixture-1", lastUnitPriceCents: 250 }]);
     await expect(getAll("purchases")).resolves.toMatchObject([{ id: "purchase-fixture-1", totalCents: 250, unitPriceCents: 250 }]);
     await expect(getItem("spaces", "main")).resolves.toMatchObject({ state: { budgets: [{ limitCents: 15000 }], goals: [{ targetCents: 100000, savedCents: 10000 }] } });
+  });
+
+  it("aporta a un objetivo y registra la salida de saldo de forma atómica", async () => {
+    await importBackup(fixture);
+    const updatedGoal = await contributeToGoal("goal-fixture-1", 2500);
+    expect(updatedGoal).toMatchObject({ savedCents: 12500 });
+    expect(updatedGoal.contributions).toHaveLength(2);
+    const contribution = (await getAll("movements")).find((item) => item.goalId === "goal-fixture-1");
+    expect(contribution).toMatchObject({ type: "Gasto", category: "Ahorro", amountCents: 2500, goalId: "goal-fixture-1" });
+    const backup = await exportBackup();
+    expect(backup.movements).toContainEqual(expect.objectContaining({ goalId: "goal-fixture-1", amountCents: 2500 }));
+    await importBackup(backup);
+    expect(await getAll("movements")).toContainEqual(expect.objectContaining({ goalId: "goal-fixture-1", amountCents: 2500 }));
+
+    const unchangedMovements = await getAll("movements");
+    await expect(contributeToGoal("missing-goal", 500)).rejects.toThrow("No se encontró un objetivo activo");
+    await expect(getAll("movements")).resolves.toEqual(unchangedMovements);
+    await expect(getItem("spaces", "main")).resolves.toMatchObject({ state: { goals: [{ savedCents: 12500 }] } });
   });
 
   it("conserva el nombre y el XP local al importar un respaldo financiero antiguo", async () => {

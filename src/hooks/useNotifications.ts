@@ -66,7 +66,7 @@ export function useNotifications(candidates: FinancialAlert[], enabled: boolean)
             for (const alert of newAlerts) await registration.showNotification(alert.title, {
               body: alert.message,
               tag: alert.id,
-              icon: "/icons/icon.svg",
+              icon: "/icons/app-icon-192.png",
               data: { url: "/" },
             });
           } catch { /* Los avisos internos permanecen disponibles si el sistema no los muestra. */ }

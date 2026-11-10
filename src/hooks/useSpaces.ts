@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getItem, putItem } from "../lib/db";
+import { contributeToGoal, getItem, putItem } from "../lib/db";
 import type { BudgetSpace, GoalSpace, SpacesState } from "../types/spaces";
 import { movementCategories } from "../types/finance";
 import { awardMascotMission } from "../lib/db";
@@ -79,13 +79,16 @@ export function useSpaces() {
     }));
   }
 
-  function contribute(goalId: string, amountCents: number) {
-    if (!Number.isInteger(amountCents) || amountCents <= 0) return;
+  async function contribute(goalId: string, amountCents: number) {
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new Error("La aportación debe ser mayor que cero.");
     const goal = state.goals.find((item) => item.id === goalId);
-    if (goal && goal.savedCents < goal.targetCents && goal.savedCents + amountCents >= goal.targetCents) {
+    if (!goal || goal.archived) throw new Error("No se encontró un objetivo activo para esta aportación.");
+    const updatedGoal = await contributeToGoal(goalId, amountCents);
+    if (goal.savedCents < goal.targetCents && updatedGoal.savedCents >= goal.targetCents) {
       void awardMascotMission(`mission:goal-reached:${currentMonthKey()}`, MASCOT_REWARDS.monthlyGoalReached, "Objetivo de ahorro alcanzado").catch(() => undefined);
     }
-    setState((current) => ({ ...current, goals: current.goals.map((goal) => goal.id === goalId ? { ...goal, savedCents: goal.savedCents + amountCents, contributions: [...(goal.contributions ?? []), { amountCents, date: new Date().toISOString() }] } : goal) }));
+    setState((current) => ({ ...current, goals: current.goals.map((item) => item.id === goalId ? updatedGoal : item) }));
+    window.dispatchEvent(new Event("finance-data-restored"));
   }
 
   function archive(kind: "budget" | "goal", spaceId: string) {

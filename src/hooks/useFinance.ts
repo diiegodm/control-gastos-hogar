@@ -111,6 +111,12 @@ export function useFinance(selectedYm: string) {
 
   useEffect(() => {
     let mounted = true;
+    const handleDataRestored = () => {
+      void refresh().catch((error: unknown) => {
+        if (mounted) setLoadError(error instanceof Error ? error.message : "No se pudieron actualizar los datos locales.");
+      });
+    };
+    window.addEventListener("finance-data-restored", handleDataRestored);
     async function boot() {
       setLoading(true);
       setLoadError(null);
@@ -129,6 +135,7 @@ export function useFinance(selectedYm: string) {
     void boot();
     return () => {
       mounted = false;
+      window.removeEventListener("finance-data-restored", handleDataRestored);
     };
   }, [refresh, retryCount]);
 
@@ -193,7 +200,7 @@ export function useFinance(selectedYm: string) {
 
   const dashboard = useMemo(() => {
     const summary = monthSummary(state, selectedYm);
-    const { income, fixedExpenses, variableExpenses, categoryData } = summary;
+    const { income, fixedExpenses, variableExpenses, goalContributions, categoryData } = summary;
     const cashBalance = calculateCashBalance({
       movements: state.movements,
       fixedPayments: state.fixedPayments,
@@ -218,6 +225,7 @@ export function useFinance(selectedYm: string) {
       income,
       fixedExpenses,
       variableExpenses,
+      goalContributions,
       available,
       monthlyResult,
       inheritedBalance,

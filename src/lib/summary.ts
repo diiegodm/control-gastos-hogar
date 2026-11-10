@@ -7,6 +7,7 @@ export type MonthSummary = {
   income: number;
   fixedExpenses: number;
   variableExpenses: number;
+  goalContributions: number;
   totalSpent: number;
   categoryData: Array<{ category: string; value: number }>;
 };
@@ -23,7 +24,10 @@ export function monthSummary(
     .reduce((sum, item) => sum + item.amountCents, 0);
   const linkedMovementIds = new Set(matchFixedPaymentMovements(movements, fixedPayments, state.fixedExpenses).movementByPaymentId.values());
   const movementExpenses = movements
-    .filter((item) => item.type === "Gasto" && !linkedMovementIds.has(item.id))
+    .filter((item) => item.type === "Gasto" && !item.goalId && !linkedMovementIds.has(item.id))
+    .reduce((sum, item) => sum + item.amountCents, 0);
+  const goalContributions = movements
+    .filter((item) => item.type === "Gasto" && item.goalId)
     .reduce((sum, item) => sum + item.amountCents, 0);
   const fixedCents = fixedPayments.reduce((sum, item) => sum + item.amountCents, 0);
   const fixedExpenses = fromCents(fixedCents);
@@ -31,7 +35,7 @@ export function monthSummary(
 
   const categoryTotals = new Map<string, number>();
   for (const movement of movements) {
-    if (movement.type !== "Gasto" || linkedMovementIds.has(movement.id)) continue;
+    if (movement.type !== "Gasto" || movement.goalId || linkedMovementIds.has(movement.id)) continue;
     categoryTotals.set(movement.category, (categoryTotals.get(movement.category) ?? 0) + movement.amountCents);
   }
   for (const payment of fixedPayments) {
@@ -48,6 +52,7 @@ export function monthSummary(
     income: fromCents(income),
     fixedExpenses,
     variableExpenses: fromCents(variableExpenses),
+    goalContributions: fromCents(goalContributions),
     totalSpent: fromCents(fixedCents + variableExpenses),
     categoryData,
   };

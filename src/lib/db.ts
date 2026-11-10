@@ -183,7 +183,7 @@ function parseBackupV1(backup: Record<string, unknown>): BackupPayload {
     requiredString(item, "category", label);
     requiredString(item, "description", label);
     const amountCents = toCents(finiteNumber(item, "amount", label));
-    optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label); optionalString(item, "fixedPaymentId", label);
+    optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label); optionalString(item, "fixedPaymentId", label); optionalString(item, "goalId", label);
     if (item.generatedByFixedPayment !== undefined && typeof item.generatedByFixedPayment !== "boolean") throw new Error(`${label}.generatedByFixedPayment debe ser booleano.`);
     const { amount: _oldAmount, ...rest } = item;
     return { ...rest, amountCents } as unknown as Movement;
@@ -311,7 +311,7 @@ export function parseBackup(raw: unknown): BackupPayload {
     isoDate(item, "date", label);
     if (item.type !== "Ingreso" && item.type !== "Gasto") throw new Error(`${label}.type no es válido.`);
     requiredString(item, "category", label); requiredString(item, "description", label);
-    finiteNumber(item, "amountCents", label, true); optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label); optionalString(item, "ticketId", label); optionalString(item, "fixedPaymentId", label);
+    finiteNumber(item, "amountCents", label, true); optionalString(item, "budgetSpaceId", label); optionalString(item, "source", label); optionalString(item, "purchaseId", label); optionalString(item, "ticketId", label); optionalString(item, "fixedPaymentId", label); optionalString(item, "goalId", label);
     if (item.generatedByFixedPayment !== undefined && typeof item.generatedByFixedPayment !== "boolean") throw new Error(`${label}.generatedByFixedPayment debe ser booleano.`);
     return item as unknown as Movement;
   });
@@ -624,6 +624,52 @@ export async function getItem<K extends StoreName>(storeName: K, id: string): Pr
 
 export async function putItem<K extends StoreName>(storeName: K, item: StoreMap[K]): Promise<void> {
   await runTransaction(storeName, "readwrite", (transaction) => { transaction.objectStore(storeName).put(item); });
+}
+
+export async function contributeToGoal(goalId: string, amountCents: number): Promise<GoalSpace> {
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new Error("La aportación debe ser mayor que cero.");
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(["spaces", "movements"], "readwrite");
+    const spacesStore = transaction.objectStore("spaces");
+    let updatedGoal: GoalSpace | undefined;
+    let failure: Error | undefined;
+    const request = spacesStore.get("main");
+    request.onsuccess = () => {
+      const spacesRecord = request.result as SpacesRecord | undefined;
+      const goal = spacesRecord?.state.goals.find((item) => item.id === goalId);
+      if (!spacesRecord || !goal || goal.archived) {
+        failure = new Error("No se encontró un objetivo activo para esta aportación.");
+        transaction.abort();
+        return;
+      }
+      const now = new Date().toISOString();
+      const date = todayISO();
+      updatedGoal = {
+        ...goal,
+        savedCents: goal.savedCents + amountCents,
+        contributions: [...(goal.contributions ?? []), { amountCents, date: now }],
+      };
+      const movementId = createId("saving");
+      const movement: Movement = {
+        id: movementId,
+        date,
+        type: "Gasto",
+        category: "Ahorro",
+        description: `Aportación a objetivo: ${goal.name}`,
+        amountCents,
+        goalId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      spacesStore.put({ ...spacesRecord, state: { ...spacesRecord.state, goals: spacesRecord.state.goals.map((item) => item.id === goalId ? updatedGoal! : item) } });
+      transaction.objectStore("movements").add(movement);
+    };
+    request.onerror = () => { failure = request.error instanceof Error ? request.error : new Error("No se pudo leer el objetivo."); };
+    transaction.oncomplete = () => updatedGoal ? resolve(updatedGoal) : reject(failure ?? new Error("No se pudo completar la aportación."));
+    transaction.onerror = () => reject(failure ?? transaction.error ?? new Error("No se pudo guardar la aportación."));
+    transaction.onabort = () => reject(failure ?? transaction.error ?? new Error("Se canceló la aportación; no se guardaron cambios."));
+  });
 }
 
 export async function saveMarketPurchaseBatch(products: MarketProduct[], purchases: MarketPurchase[], movements: Movement[]): Promise<void> {

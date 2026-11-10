@@ -39,6 +39,7 @@ describe("mes y resumen mensual", () => {
     const movements: Movement[] = [
       { id: "in", date: "2027-01-05", type: "Ingreso", category: "Otros", description: "Salario", amountCents: 200000, createdAt: "", updatedAt: "" },
       { id: "ropa", date: "2027-01-06", type: "Gasto", category: "Ropa", description: "Abrigo", amountCents: 4000, createdAt: "", updatedAt: "" },
+      { id: "goal-save", date: "2027-01-08", type: "Gasto", category: "Ahorro", description: "Aportación a objetivo: Viaje", amountCents: 25000, goalId: "trip", createdAt: "", updatedAt: "" },
       { id: "market", date: "2027-01-09", type: "Gasto", category: "Mercado", description: "Compra: Leche", amountCents: 1000, source: "market", purchaseId: "buy", createdAt: "", updatedAt: "" },
       { id: "food", date: "2026-01-06", type: "Gasto", category: "Comidas", description: "Fuera de mes", amountCents: 90000, createdAt: "", updatedAt: "" },
     ];
@@ -53,11 +54,13 @@ describe("mes y resumen mensual", () => {
     };
 
     const summary = monthSummary(stateWithInventoryHistory, "2027-01");
-    expect(summary).toMatchObject({ income: 2000, fixedExpenses: 35, variableExpenses: 50, totalSpent: 85 });
+    expect(summary).toMatchObject({ income: 2000, fixedExpenses: 35, variableExpenses: 50, goalContributions: 250, totalSpent: 85 });
     expect(summary.categoryData.reduce((sum, row) => sum + row.value, 0)).toBe(summary.totalSpent);
     expect(summary.categoryData).toContainEqual({ category: "Ropa", value: 40 });
     expect(summary.categoryData).toContainEqual({ category: "Otros", value: 35 });
     expect(summary.categoryData).toContainEqual({ category: "Mercado", value: 10 });
+    expect(summary.categoryData).not.toContainEqual({ category: "Ahorro", value: 250 });
+    expect(calculateCashBalance({ movements, fixedPayments: stateWithInventoryHistory.fixedPayments, fixedExpenses, settings: { openingBalanceCents: 0, trackingStartMonth: "2027-01" }, selectedMonth: "2027-01" }).availableBalanceCents).toBe(166500);
   });
 });
 
