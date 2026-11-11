@@ -181,7 +181,7 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
             {draft.lines.length ? draft.lines.map((line, index) => (
               <div key={line.id} className="space-y-2 rounded-xl border border-slate-200 p-3">
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(10rem,1fr)_6rem_7rem_7rem_auto]">
-                  <div className="col-span-2 sm:col-span-1"><input className="input w-full" aria-label="Producto del ticket" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} required />{line.reviewRequired ? <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">Revisar lectura{line.ocrConfidence === undefined ? "" : ` · ${line.ocrConfidence}%`}</span> : null}</div>
+                  <div className="col-span-2 sm:col-span-1"><input className="input w-full" aria-label="Producto del ticket" value={line.description} onChange={(event) => updateLine(index, { description: event.target.value })} required />{line.reviewRequired ? <label className="mt-1 flex items-center gap-2 text-xs font-bold text-amber-800"><input type="checkbox" checked={false} onChange={() => updateLine(index, { reviewRequired: false })} />Revisar lectura{line.ocrConfidence === undefined ? "" : ` · ${line.ocrConfidence}%`}: confirmo que los datos coinciden con el ticket</label> : null}</div>
                   <input className="input min-w-0" aria-label="Cantidad" type="number" min="0.001" step="any" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })} required />
                   <input className="input min-w-0" aria-label="Precio unitario" inputMode="decimal" value={fromCents(line.unitPriceCents)} onChange={(event) => { const amount = parseAmount(event.target.value); if (amount !== null) updateLine(index, { unitPriceCents: toCents(amount) }); }} required />
                   <input className="input min-w-0" aria-label="Importe de la línea" inputMode="decimal" value={fromCents(line.totalCents)} onChange={(event) => { const amount = parseAmount(event.target.value); if (amount !== null) updateLine(index, { totalCents: toCents(amount) }); }} required />
@@ -204,8 +204,9 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
             )) : <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">No hay líneas detectadas. Puedes registrar el total y añadir productos manualmente.</p>}
             {draft.lines.some(receiptLineAmountMismatch) ? <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">En una o más líneas, cantidad × precio unitario no coincide con el importe. Revisa los tres valores; no se corregirán automáticamente.</p> : null}
             {draft.totalCents !== undefined && ticketLinesMismatch(draft.lines, draft.totalCents, draft.discountCents) ? <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">La suma de productos menos descuentos no coincide con el total. Comprueba el ticket; el gasto registrado será exactamente el total indicado.</p> : null}
+            {draft.lines.some((line) => line.reviewRequired) ? <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Confirma cada línea marcada después de comprobarla en la foto. No guardaremos lecturas dudosas sin tu revisión.</p> : null}
             {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</p> : null}
-            <button className="btn-primary w-full" type="submit" disabled={saving}>{saving ? "Guardando ticket…" : "Confirmar ticket"}</button>
+            <button className="btn-primary w-full" type="submit" disabled={saving || draft.lines.some((line) => line.reviewRequired)}>{saving ? "Guardando ticket…" : "Confirmar ticket"}</button>
           </form>
         </Card>
       ) : null}

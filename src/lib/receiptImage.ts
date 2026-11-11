@@ -26,25 +26,21 @@ async function decodeImage(file: File): Promise<{ source: CanvasImageSource; wid
     try {
       const bitmap = await timed(decode, IMAGE_DECODE_TIMEOUT_MS, "La foto tardó demasiado en abrirse.");
       return { source: bitmap, width: bitmap.width, height: bitmap.height, release: () => bitmap.close() };
-    } catch (error) {
+    } catch {
       void decode.then((bitmap) => bitmap.close()).catch(() => undefined);
-      throw error;
     }
   }
 
   const url = URL.createObjectURL(file);
   const image = new Image();
-  const loaded = new Promise<void>((resolve, reject) => {
-    image.onload = () => resolve();
-    image.onerror = () => reject(new Error("El navegador no pudo abrir esta imagen."));
-    image.src = url;
-  });
   try {
-    await timed(loaded, IMAGE_DECODE_TIMEOUT_MS, "La foto tardó demasiado en abrirse.");
+    image.src = url;
+    await timed(image.decode(), IMAGE_DECODE_TIMEOUT_MS, "El iPhone tardó demasiado en abrir la foto.");
+    if (!image.naturalWidth || !image.naturalHeight) throw new Error("El navegador no pudo abrir esta imagen.");
     return { source: image, width: image.naturalWidth, height: image.naturalHeight, release: () => URL.revokeObjectURL(url) };
-  } catch (error) {
+  } catch {
     URL.revokeObjectURL(url);
-    throw error;
+    throw new Error("Safari no pudo abrir esta foto. Prueba con una imagen JPEG o PNG de la galería.");
   }
 }
 
@@ -62,11 +58,16 @@ export async function prepareReceiptImage(file: File): Promise<Blob> {
     );
     const width = Math.max(1, Math.round(decoded.width * scale));
     const height = Math.max(1, Math.round(decoded.height * scale));
+    const rotateLandscape = width > height;
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = rotateLandscape ? height : width;
+    canvas.height = rotateLandscape ? width : height;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) throw new Error("No se pudo preparar la imagen en este dispositivo.");
+    if (rotateLandscape) {
+      context.translate(canvas.width, 0);
+      context.rotate(Math.PI / 2);
+    }
     context.drawImage(decoded.source, 0, 0, width, height);
 
     const pixels = context.getImageData(0, 0, width, height);

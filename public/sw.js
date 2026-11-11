@@ -1,10 +1,10 @@
-const CACHE_NAME = "finanzas-hogar-v11";
+const CACHE_NAME = "finanzas-hogar-v12";
 const APP_SHELL = [
   "/", "/index.html", "/manifest.webmanifest", "/icons/icon.svg",
   "/icons/app-icon-180.png", "/icons/app-icon-192.png", "/icons/app-icon-512.png",
   "/mascot/sprout.png", "/mascot/leaf.png", "/mascot/guardian.png",
   "/ocr/worker.min.js",
-  "/assets/receipt-worker.js",
+  "/ocr/receipt-worker.js",
   "/ocr/core/tesseract-core-lstm.wasm.js",
   "/ocr/core/tesseract-core-simd-lstm.wasm.js",
   "/ocr/core/tesseract-core-relaxedsimd-lstm.wasm.js",

@@ -1,5 +1,4 @@
 import { createWorker, PSM, type Worker } from "tesseract.js";
-import workerPath from "./receiptWorker.ts?worker&url";
 import { prepareReceiptImage } from "./receiptImage";
 import type { ReceiptTextLine } from "./receiptParser";
 
@@ -35,6 +34,16 @@ type ReceiptWorker = Pick<Worker, "setParameters" | "recognize" | "terminate">;
 type ReceiptRecognition = Awaited<ReturnType<Worker["recognize"]>>;
 type WorkerFactory = (logger: (status: string, progress: number) => void) => Promise<ReceiptWorker>;
 
+function confidenceScore(result: ReceiptRecognition): number {
+  const lines = (result.data.blocks ?? []).flatMap((block) => block.paragraphs.flatMap((paragraph) => paragraph.lines))
+    .filter((line) => line.text.trim() && Number.isFinite(line.confidence));
+  if (!lines.length) return Number.isFinite(result.data.confidence) ? result.data.confidence : 0;
+  const weight = lines.reduce((sum, line) => sum + line.text.trim().length, 0);
+  return weight
+    ? lines.reduce((sum, line) => sum + line.confidence * line.text.trim().length, 0) / weight
+    : 0;
+}
+
 function getOcrLines(result: ReceiptRecognition): ReceiptTextLine[] {
   const pageLines = (result.data.blocks ?? []).flatMap((block) => block.paragraphs.flatMap((paragraph) => paragraph.lines));
   const lines = pageLines
@@ -57,10 +66,10 @@ function readableError(error: unknown): Error {
 }
 
 export async function recognizeReceipt(file: File, onProgress: (progress: OcrProgress) => void): Promise<ReceiptOcrResult> {
-    const image = await prepareReceiptImage(file);
+  const image = await prepareReceiptImage(file);
   const base = import.meta.env.BASE_URL;
   return receiptRecognizer(image, onProgress, (logger) => createWorker("spa", 1, {
-    workerPath,
+    workerPath: `${base}ocr/receipt-worker.js`,
     workerBlobURL: false,
     corePath: `${base}ocr/core`,
     langPath: `${base}ocr/lang`,
@@ -102,11 +111,29 @@ export function createReceiptRecognizer(
     try {
       worker = await withTimeout(initialization, timeouts.initialization ?? INITIALIZATION_TIMEOUT_MS, "La inicialización del OCR superó el tiempo permitido.");
       await withTimeout(worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: "1" }), timeouts.parameters ?? PARAMETER_TIMEOUT_MS, "La preparación del OCR superó el tiempo permitido.");
-      const result = await withTimeout(
+      let result = await withTimeout(
         worker.recognize(image, { rotateAuto: true }, { text: true, blocks: true }),
         timeouts.recognition ?? RECOGNITION_TIMEOUT_MS,
         "El reconocimiento superó el tiempo permitido.",
       );
+      let bestScore = confidenceScore(result);
+      if (bestScore < 80) {
+        const rotations = [Math.PI, Math.PI / 2, -Math.PI / 2];
+        for (const [index, rotateRadians] of rotations.entries()) {
+          onProgress({ status: "Probando otra orientación de la foto", progress: 0.55 + index * 0.2 });
+          const rotated = await withTimeout(
+            worker.recognize(image, { rotateRadians, rotateAuto: false }, { text: true, blocks: true }),
+            timeouts.recognition ?? RECOGNITION_TIMEOUT_MS,
+            "La comprobación de orientación tardó demasiado.",
+          );
+          const rotatedScore = confidenceScore(rotated);
+          if (rotatedScore > bestScore) {
+            result = rotated;
+            bestScore = rotatedScore;
+          }
+          if (bestScore >= 85) break;
+        }
+      }
       return { text: result.data.text, lines: getOcrLines(result) };
     } catch (error) {
       abandoned = true;

@@ -12,7 +12,7 @@ Alcance: escaneo de tickets, reconocimiento local, parser, revisión, IndexedDB,
 - `useFinance.saveTicket` crea el ticket y un movimiento de gasto; aplica al inventario únicamente las líneas que el usuario selecciona.
 - `saveReceiptTicket` usa una transacción IndexedDB conjunta con `add` para ticket/movimiento y `put` para productos. El rollback es atómico.
 - No se guarda el archivo de imagen. Se conserva el texto OCR en el registro del ticket.
-- `public/sw.js` precarga los motores, el modelo español y el worker para uso posterior sin red. El build genera el worker en `/assets/receipt-worker.js`.
+- `public/sw.js` precarga los motores, el modelo español y el wrapper clásico del worker OCR junto a Tesseract para uso posterior sin red.
 
 ## Hallazgos priorizados
 
@@ -63,6 +63,7 @@ El baseline tiene 39 pruebas en 8 archivos; las pruebas OCR cubren solo dos ejem
 
 - Los tests inyectan un worker simulado. La inicialización real de Tesseract/WASM, permisos de cámara/archivos y comportamiento de IndexedDB en navegador requieren navegador real.
 - No se ha verificado físicamente en Safari iPhone ni Android; no se afirma compatibilidad física sin esos dispositivos.
+- El fallback de Safari ante fallos de `createImageBitmap` y el wrapper clásico reducen diferencias del navegador, pero no sustituyen la validación con un iPhone real.
 - La duración del primer procesamiento depende del dispositivo, memoria y descarga/precache del modelo. Se imponen límites de espera y cierre del worker, pero no se puede garantizar OCR offline hasta completar una instalación con recursos precargados.
 - El preprocesado corrige orientación EXIF disponible y reduce imagen a un máximo de 5 MP con límite de archivo de 20 MB. La calidad puede variar con reflejos, desenfoque, tickets muy largos y columnas no estándar.
 - No hay script de lint definido en el repositorio. La consola de navegador tampoco se pudo inspeccionar en un dispositivo real durante esta ejecución.
@@ -90,6 +91,9 @@ El baseline tiene 39 pruebas en 8 archivos; las pruebas OCR cubren solo dos ejem
 - `npm run typecheck`: aprobado.
 - `npm test`: 9 archivos, 46 pruebas aprobadas.
 - `npm run build`: aprobado; el worker se emite en `dist/assets/receipt-worker.js`. Persiste una advertencia de Vite por el bundle principal de 734.78 kB minificado.
+- Corrección iPhone posterior: worker clásico bajo `/ocr/receipt-worker.js`, con timeout de carga y cierre por inactividad; `createImageBitmap` tiene fallback a `Image.decode()` para imágenes que Safari no decodifica por esa vía.
+- `npm test` tras la corrección iPhone: 11 archivos, 57 pruebas aprobadas.
+- `npm run build` tras la corrección iPhone: aprobado; `dist/ocr/receipt-worker.js`, el worker oficial, y el modelo español están presentes.
 - `npm audit`: 0 vulnerabilidades tras actualizar versiones compatibles en el lockfile.
 - `git diff --check`: aprobado.
 - No se detectó un script `lint`; la consola y las cámaras deben verificarse en los dispositivos físicos antes de afirmar compatibilidad final.
