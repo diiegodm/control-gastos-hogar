@@ -90,6 +90,40 @@ function confidenceFor(line: string, metadata: Map<string, ReceiptTextLine[]>): 
   return matches?.shift()?.confidence;
 }
 
+function cleanDescriptionNoise(value: string): string {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  while (words.length > 1) {
+    const token = words[0];
+    if (/^[^\p{L}\p{N}]+$/u.test(token)) {
+      words.shift();
+      continue;
+    }
+    if (/^[A-ZÁÉÍÓÚÑ]\.$/u.test(token)) break;
+    const letters = token.match(/\p{L}/gu) ?? [];
+    const nextLetter = words[1].match(/\p{L}/u)?.[0];
+    const isUppercaseInitial = letters.length === 1
+      && letters[0] === letters[0].toLocaleUpperCase("es-ES")
+      && nextLetter !== undefined
+      && nextLetter === nextLetter.toLocaleUpperCase("es-ES");
+    if (letters.length === 1 && !isUppercaseInitial) {
+      words.shift();
+      continue;
+    }
+    break;
+  }
+  return words.join(" ").replace(/^[^\p{L}\p{N}]+/u, "").replace(/[^\p{L}\p{N})]+$/u, "").trim();
+}
+
+function productHeaderIndex(lines: string[]): number {
+  for (let index = 0; index < lines.length; index += 1) {
+    const headerText = normalizeLine(lines.slice(index, index + 3).join(" "));
+    if (/\b(descripcion|producto|articulo)\b/.test(headerText) && /\b(precio|importe|p unit|unitario)\b/.test(headerText)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 export function parseReceiptText(
   text: string,
   today = new Date().toISOString().slice(0, 10),
@@ -104,7 +138,9 @@ export function parseReceiptText(
     metadata.get(key)!.push(line);
   }
 
-  const totalLine = lines.find((line) => /\b(total|importe total|a pagar|total €)\b/i.test(line));
+  const totalLineIndex = lines.findIndex((line) => /\b(total|importe total|a pagar|total €)\b/i.test(line));
+  const totalLine = totalLineIndex < 0 ? undefined : lines[totalLineIndex];
+  const headerIndex = productHeaderIndex(lines);
   const subtotalLine = lines.find((line) => /\b(subtotal|base imponible)\b/i.test(line));
   const taxLine = lines.find((line) => /\b(iva|impuesto)\b/i.test(line));
   const finalCents = (line?: string) => {
@@ -118,10 +154,12 @@ export function parseReceiptText(
   let discountCents: number | undefined;
   const detectedDate = lines.map(toISODate).find((value) => value !== undefined);
   const date = detectedDate ?? today;
-  const ignored = /\b(total|subtotal|base imponible|iva|impuesto|tarjeta|efectivo|cambio|vuelto|gracias|cajero|terminal|fecha|hora|ticket|factura|entregado|devolucion|devolución)\b/i;
+  const ignored = /\b(total|subtotal|base imponible|iva|impuesto|tarjeta|efectivo|contado|pago|pagado|cambio|vuelto|gracias|cajero|terminal|fecha|hora|ticket|pre[- ]?ticket|factura|entregado|devolucion|devolución|mesa|comensal(?:es)?|descripcion|descripción|precio|importe|cantidad)\b/i;
   const parsedItems: ReceiptLine[] = [];
 
   for (const [index, line] of lines.entries()) {
+    if (headerIndex >= 0 && index <= headerIndex) continue;
+    if (totalLineIndex >= 0 && index >= totalLineIndex) continue;
     const tokens = numericTokens(line);
     const amounts = tokens.filter((token) => token.cents !== undefined);
     if (/\b(descuento|promo(?:cion)?|oferta)\b/i.test(line)) {
@@ -129,18 +167,21 @@ export function parseReceiptText(
       if (amount !== undefined && amount !== 0) discountCents = (discountCents ?? 0) + Math.abs(amount);
       continue;
     }
-    if (ignored.test(line) || !amounts.length || !/[a-záéíóúñ]/i.test(line)) continue;
+    if (ignored.test(line) || toISODate(line) || !amounts.length || !/[a-záéíóúñ]/i.test(line)) continue;
 
     const totalToken = amounts[amounts.length - 1];
     if (totalToken.cents === undefined || totalToken.cents <= 0) continue;
     const beforeTotal = line.slice(0, totalToken.start).trim();
     const marker = quantityMarker(beforeTotal);
-    const quantity = marker ? Number(marker[1].replace(",", ".")) : 1;
+    const leadingQuantity = !marker ? beforeTotal.match(/^(\d+(?:[.,]\d+)?)\s*[.)\]:-]?\s+(?=[A-Za-zÁÉÍÓÚÑ])/u) : null;
+    const quantityText = marker?.[1] ?? leadingQuantity?.[1];
+    const quantity = quantityText ? Number(quantityText.replace(",", ".")) : 1;
     if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) continue;
 
-    const description = (marker ? beforeTotal.slice(0, marker.index ?? 0) : beforeTotal)
+    const rawDescription = (marker ? beforeTotal.slice(0, marker.index ?? 0) : leadingQuantity ? beforeTotal.slice(leadingQuantity[0].length) : beforeTotal)
       .replace(/[\s:;=|·*€]+$/g, "")
       .trim();
+    const description = cleanDescriptionNoise(rawDescription);
     if (description.length < 2 || !/[a-záéíóúñ]/i.test(description)) continue;
 
     const markerEnd = marker ? (marker.index ?? 0) + marker[0].length : -1;
@@ -154,6 +195,8 @@ export function parseReceiptText(
         : Math.round(totalToken.cents / quantity);
     const ocrConfidence = confidenceFor(line, metadata);
     const structuralUncertainty = quantity > 1 && !unitToken;
+    const suspiciousDescription = /[^\p{L}\p{N}\s.,()&/+’'-]/u.test(description);
+    const descriptionAdjusted = description !== rawDescription;
     parsedItems.push({
       id: `line_${index}`,
       description,
@@ -163,10 +206,14 @@ export function parseReceiptText(
       inventoryAction: "create",
       category: "Despensa" as ProductCategory,
       ...(ocrConfidence === undefined ? {} : { ocrConfidence: Math.max(0, Math.min(100, Math.round(ocrConfidence))) }),
-      ...(ocrConfidence !== undefined && ocrConfidence < 60 || structuralUncertainty ? { reviewRequired: true } : {}),
+      ...(ocrConfidence !== undefined && ocrConfidence < 75 || structuralUncertainty || suspiciousDescription || descriptionAdjusted ? { reviewRequired: true } : {}),
     });
   }
 
+  const linesMismatch = totalCents !== undefined && ticketLinesMismatch(parsedItems, totalCents, discountCents ?? 0);
+  if (linesMismatch) {
+    for (const item of parsedItems) item.reviewRequired = true;
+  }
   if (totalCents === undefined) warnings.push("No se detectó con seguridad el total del ticket. Revísalo antes de guardar.");
   if (!detectedDate) warnings.push("No se detectó la fecha del ticket. Comprueba la fecha propuesta antes de confirmar.");
   if (parsedItems.length === 0) warnings.push("No se detectaron productos con suficiente claridad. Puedes añadirlos manualmente.");
@@ -175,7 +222,7 @@ export function parseReceiptText(
     && Math.abs(subtotalCents + taxCents - totalCents) > 1) {
     warnings.push("Subtotal e impuestos no coinciden con el total reconocido. Comprueba el ticket antes de confirmar.");
   }
-  if (discountCents !== undefined && totalCents !== undefined && ticketLinesMismatch(parsedItems, totalCents, discountCents)) {
+  if (linesMismatch) {
     warnings.push("La suma de productos menos descuentos no coincide con el total. Comprueba los importes; no se ajustarán automáticamente.");
   }
   const storeName = lines.find((line) => /[a-záéíóúñ]{3}/i.test(line) && !ignored.test(line) && !/\b(descuento|promo(?:cion)?|oferta)\b/i.test(line) && !toISODate(line)) ?? "Comercio";

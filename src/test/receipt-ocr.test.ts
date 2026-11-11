@@ -42,6 +42,33 @@ describe("gestión del worker OCR", () => {
     expect(terminate).toHaveBeenCalledTimes(1);
   });
 
+  it("prueba las dos orientaciones cuando la lectura inicial tiene confianza baja", async () => {
+    const { worker, terminate } = fakeWorker("lectura");
+    const resultFor = (text: string, confidence: number) => ({
+      jobId: "recognize",
+      data: {
+        text,
+        confidence,
+        blocks: [{ paragraphs: [{ lines: [{ text, confidence, bbox: { x0: 1, y0: 2, x1: 30, y1: 12 } }] }] }],
+      },
+    }) as Awaited<ReturnType<Worker["recognize"]>>;
+    vi.mocked(worker.recognize)
+      .mockResolvedValueOnce(resultFor("gibberish", 61))
+      .mockResolvedValueOnce(resultFor("rotado 180", 68))
+      .mockResolvedValueOnce(resultFor("rotado izquierda", 86));
+    const progress = vi.fn();
+    const recognizer = createReceiptRecognizer();
+
+    const result = await recognizer(blankImage, progress, async () => worker);
+
+    expect(worker.recognize).toHaveBeenCalledTimes(3);
+    expect(worker.recognize).toHaveBeenNthCalledWith(2, blankImage, { rotateRadians: Math.PI, rotateAuto: false }, { text: true, blocks: true });
+    expect(worker.recognize).toHaveBeenNthCalledWith(3, blankImage, { rotateRadians: Math.PI / 2, rotateAuto: false }, { text: true, blocks: true });
+    expect(result.text).toBe("rotado izquierda");
+    expect(progress).toHaveBeenCalledWith({ status: "Probando otra orientación de la foto", progress: 0.55 });
+    expect(terminate).toHaveBeenCalledOnce();
+  });
+
   it("cierra el worker si el reconocimiento falla y devuelve un error en español", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const { worker, terminate } = fakeWorker();
@@ -112,5 +139,41 @@ describe("validación de imágenes", () => {
     expect(prepared.type).toBe("image/jpeg");
     expect(decodeImage).toHaveBeenCalledOnce();
     expect(revoke).toHaveBeenCalledWith("blob:receipt-test");
+  });
+
+  it("gira una foto apaisada para dejar el ticket en vertical antes del OCR", async () => {
+    vi.stubGlobal("window", { setTimeout, clearTimeout });
+    vi.stubGlobal("createImageBitmap", undefined);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:landscape-ticket");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+
+    class LandscapeImageMock {
+      src = "";
+      naturalWidth = 4;
+      naturalHeight = 3;
+      decode = vi.fn(async () => undefined);
+    }
+    vi.stubGlobal("Image", LandscapeImageMock);
+    const context = {
+      translate: vi.fn(),
+      rotate: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(4 * 3 * 4) })),
+      putImageData: vi.fn(),
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: vi.fn(() => context),
+      toBlob: (callback: BlobCallback) => callback(new Blob(["prepared"], { type: "image/jpeg" })),
+    };
+    vi.stubGlobal("document", { createElement: vi.fn(() => canvas) });
+
+    await prepareReceiptImage(new File(["source"], "ticket.jpg", { type: "image/jpeg" }));
+
+    expect(canvas.width).toBe(3);
+    expect(canvas.height).toBe(4);
+    expect(context.translate).toHaveBeenCalledWith(3, 0);
+    expect(context.rotate).toHaveBeenCalledWith(Math.PI / 2);
   });
 });

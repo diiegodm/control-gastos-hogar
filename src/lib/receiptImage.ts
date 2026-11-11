@@ -58,11 +58,16 @@ export async function prepareReceiptImage(file: File): Promise<Blob> {
     );
     const width = Math.max(1, Math.round(decoded.width * scale));
     const height = Math.max(1, Math.round(decoded.height * scale));
+    const rotateLandscape = width > height;
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = rotateLandscape ? height : width;
+    canvas.height = rotateLandscape ? width : height;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) throw new Error("No se pudo preparar la imagen en este dispositivo.");
+    if (rotateLandscape) {
+      context.translate(canvas.width, 0);
+      context.rotate(Math.PI / 2);
+    }
     context.drawImage(decoded.source, 0, 0, width, height);
 
     const pixels = context.getImageData(0, 0, width, height);
