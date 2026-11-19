@@ -12,7 +12,7 @@ import { useLocalAuth } from "./hooks/useLocalAuth";
 import { LocalAccess } from "./components/LocalAccess";
 import { currentYearMonth, monthOption, todayISO } from "./lib/date";
 import { parseBackup } from "./lib/db";
-import { FloatingMascot } from "./components/FloatingMascot";
+import { MascotShortcut } from "./components/MascotShortcut";
 import { MascotPanel } from "./components/MascotPanel";
 import { useMascot } from "./hooks/useMascot";
 import { MASCOT_LEVELS } from "./types/mascot";
@@ -172,6 +172,21 @@ export default function App() {
             <span className="rounded-full bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm">
               {monthOption(selectedYm).shortLabel} {monthOption(selectedYm).year}
             </span>
+            {mascot.profile.onboardingComplete && !mascotHidden ? <MascotShortcut
+              name={mascot.profile.name}
+              progress={mascot.progress}
+              unreadCount={notifications.unreadCount}
+              minimized={mascotMinimized}
+              onClick={() => {
+                if (mascotMinimized) {
+                  setSection("dashboard");
+                  setMascotMinimized(false);
+                } else {
+                  setCelebration(undefined);
+                  setMascotOpen(true);
+                }
+              }}
+            /> : null}
           </div>
           <input
             ref={importRef}
@@ -187,7 +202,16 @@ export default function App() {
         {[spaces.storageError, notes.storageError].filter((message): message is string => Boolean(message)).map((message) => <p key={message} role="alert" className="mb-4 rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm font-semibold text-amber-200">{message}</p>)}
         <div key={section} className="page-transition">
           {section === "dashboard" ? (
-            <Dashboard name={auth.name} selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => changeSection("spaces")} />
+            <Dashboard name={auth.name} selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => changeSection("spaces")} mascot={mascot.profile.onboardingComplete && !mascotHidden ? {
+              profile: mascot.profile,
+              progress: mascot.progress,
+              unreadCount: notifications.unreadCount,
+              alert: notifications.alerts.find((item) => !item.readAt),
+              advice: advice[0],
+              minimized: mascotMinimized,
+              onOpen: () => { setCelebration(undefined); setMascotOpen(true); },
+              onToggleMinimized: () => setMascotMinimized((value) => !value),
+            } : undefined} />
           ) : null}
           {section === "spaces" ? <Spaces finance={finance} notes={notes} spaces={spaces} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
           {section === "analysis" ? <Analysis finance={finance} selectedYm={selectedYm} onMonthChange={setSelectedYm} /> : null}
@@ -197,15 +221,6 @@ export default function App() {
 
       <BottomNav active={section} onChange={changeSection} onAdd={() => setShowQuickMovement(true)} />
       {showQuickMovement ? <QuickMovement finance={finance} customCategories={[...spaces.budgetCategories, ...spaces.movementCategories]} budgetSpaces={spaces.budgets} onCreateCategory={spaces.addMovementCategory} onClose={() => setShowQuickMovement(false)} /> : null}
-      {mascot.profile.onboardingComplete && !mascotHidden ? <FloatingMascot
-        name={mascot.profile.name}
-        progress={mascot.progress}
-        minimized={mascotMinimized}
-        unreadCount={notifications.unreadCount}
-        latestAlertTitle={notifications.alerts.find((item) => !item.readAt)?.title}
-        onOpen={() => { setCelebration(undefined); setMascotOpen(true); }}
-        onToggleMinimized={() => setMascotMinimized((value) => !value)}
-      /> : null}
       {mascotOpen ? <MascotPanel
         profile={mascot.profile}
         progress={mascot.progress}
