@@ -12,6 +12,11 @@ import { formatDate, monthOption } from "../lib/date";
 import { currency, fromCents } from "../lib/money";
 import type { useFinance } from "../hooks/useFinance";
 import type { useSpaces } from "../hooks/useSpaces";
+import { MascotHomeCard } from "../components/MascotHomeCard";
+import type { MascotProgress } from "../lib/mascot";
+import type { MascotAdvice } from "../lib/mascotAdvice";
+import type { MascotProfile } from "../types/mascot";
+import type { FinancialAlert } from "../types/notifications";
 
 type Finance = ReturnType<typeof useFinance>;
 type SpacesModel = ReturnType<typeof useSpaces>;
@@ -23,6 +28,16 @@ type Props = {
   finance: Finance;
   spaces: SpacesModel;
   onOpenSpaces: () => void;
+  mascot?: {
+    profile: MascotProfile;
+    progress: MascotProgress;
+    unreadCount: number;
+    alert?: FinancialAlert;
+    advice?: MascotAdvice;
+    minimized: boolean;
+    onOpen: () => void;
+    onToggleMinimized: () => void;
+  };
 };
 
 const chartColors = ["#a6ff00", "#36c8d5", "#ffbd4a", "#a77cff", "#ff657a", "#65d38e", "#697574"];
@@ -33,7 +48,7 @@ const alertClasses = {
   red: "bg-rose-50 text-rose-700 ring-rose-100",
 };
 
-export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, onOpenSpaces }: Props) {
+export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, onOpenSpaces, mascot }: Props) {
   const { dashboard } = finance;
   const selected = monthOption(selectedYm);
   const totalExpenses = dashboard.fixedExpenses + dashboard.variableExpenses;
@@ -47,6 +62,17 @@ export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, on
           <h1 className="mt-1 text-2xl font-black text-slate-50">Tu hogar este mes</h1>
         </div>
       </div>
+
+      {mascot?.profile.onboardingComplete ? <MascotHomeCard
+        name={mascot.profile.name}
+        progress={mascot.progress}
+        unreadCount={mascot.unreadCount}
+        alert={mascot.alert}
+        advice={mascot.advice?.message}
+        minimized={mascot.minimized}
+        onOpen={mascot.onOpen}
+        onToggleMinimized={mascot.onToggleMinimized}
+      /> : null}
 
       <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto]">
         <div className="min-w-0">
