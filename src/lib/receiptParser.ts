@@ -239,3 +239,13 @@ export function receiptLineAmountMismatch(line: Pick<ReceiptLine, "quantity" | "
     || !Number.isSafeInteger(line.totalCents) || line.totalCents < 0
     || Math.abs(Math.round(line.quantity * line.unitPriceCents) - line.totalCents) > 1;
 }
+
+export function receiptSaveError(lines: ReceiptLine[], totalCents: number, discountCents = 0): string | null {
+  if (lines.some(receiptLineAmountMismatch)) {
+    return "La cantidad, el precio y el importe de alguna línea no coinciden. Corrige o quita esa línea antes de guardar.";
+  }
+  if (lines.length > 0 && ticketLinesMismatch(lines, totalCents, discountCents)) {
+    return "Los productos detectados no suman el total del ticket. Corrige o quita las líneas erróneas; también puedes quitarlas todas para guardar solo el gasto.";
+  }
+  return null;
+}
