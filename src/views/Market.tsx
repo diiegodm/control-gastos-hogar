@@ -8,7 +8,7 @@ import { getChecklistIds, saveChecklistIds } from "../lib/db";
 import type { useFinance } from "../hooks/useFinance";
 import type { MarketProduct, ProductCategory, ReceiptLine } from "../types/finance";
 import { productCategories } from "../types/finance";
-import { parseReceiptText, receiptLineAmountMismatch, ticketLinesMismatch, type ParsedReceipt } from "../lib/receiptParser";
+import { parseReceiptText, receiptLineAmountMismatch, receiptSaveError, ticketLinesMismatch, type ParsedReceipt } from "../lib/receiptParser";
 import type { OcrProgress } from "../lib/receiptOcr";
 import { validateReceiptFile } from "../lib/receiptImage";
 
@@ -111,6 +111,11 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
       || (discountText && discount === null)
       || draft.lines.some((line) => !line.description.trim() || !Number.isFinite(line.quantity) || line.quantity <= 0 || !Number.isInteger(line.totalCents) || line.totalCents < 0)) {
       setError("Revisa el total y los importes antes de guardar.");
+      return;
+    }
+    const receiptError = receiptSaveError(draft.lines, toCents(total), discount === null ? 0 : toCents(discount));
+    if (receiptError) {
+      setError(receiptError);
       return;
     }
     savingRef.current = true;

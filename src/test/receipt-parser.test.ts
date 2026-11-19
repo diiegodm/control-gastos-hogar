@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReceiptText, receiptLineAmountMismatch, ticketLinesMismatch } from "../lib/receiptParser";
+import { parseReceiptText, receiptLineAmountMismatch, receiptSaveError, ticketLinesMismatch } from "../lib/receiptParser";
 
 describe("lectura de datos de ticket", () => {
   it("extrae comercio, fecha, líneas y total en formato español", () => {
@@ -144,6 +144,14 @@ describe("lectura de datos de ticket", () => {
     expect(receipt.lines).toHaveLength(2);
     expect(receipt.lines.every((line) => line.reviewRequired)).toBe(true);
     expect(receipt.warnings).toContain("La suma de productos menos descuentos no coincide con el total. Comprueba los importes; no se ajustarán automáticamente.");
+  });
+
+  it("no permite guardar líneas OCR si no cuadran con el importe cobrado", () => {
+    const receipt = parseReceiptText("TIENDA\nLeche 8,00\nPan 3,00\nTOTAL 5,00", "2026-11-11");
+
+    expect(receiptSaveError(receipt.lines, 500)).toMatch(/no suman el total/i);
+    expect(receiptSaveError([], 500)).toBeNull();
+    expect(receiptSaveError(receipt.lines, 1100)).toBeNull();
   });
 
   it("reconoce unidades por peso, subtotal, IVA y descuentos sin alterar el total", () => {

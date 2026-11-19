@@ -42,6 +42,7 @@ import { monthSummary } from "../lib/summary";
 import { calculateCashBalance, resolveFinancialSettings } from "../lib/cashBalance";
 import { currentMonthKey } from "../lib/mascot";
 import { MASCOT_REWARDS } from "../types/mascot";
+import { receiptSaveError } from "../lib/receiptParser";
 
 type FinanceState = {
   movements: Movement[];
@@ -548,6 +549,8 @@ export function useFinance(selectedYm: string) {
       || !Number.isSafeInteger(line.unitPriceCents) || line.unitPriceCents < 0 || !Number.isSafeInteger(line.totalCents) || line.totalCents < 0)) {
       throw new Error("Revisa los nombres, cantidades y precios de los productos antes de confirmar.");
     }
+    const receiptError = receiptSaveError(input.lines, input.totalCents, input.discountCents ?? 0);
+    if (receiptError) throw new Error(receiptError);
     const id = createId("ticket");
     const now = new Date().toISOString();
     const byName = new Map(state.products.map((product) => [normalizeProductName(product.product), product]));
