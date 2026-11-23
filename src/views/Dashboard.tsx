@@ -28,6 +28,7 @@ type Props = {
   finance: Finance;
   spaces: SpacesModel;
   onOpenSpaces: () => void;
+  onScanReceipt: () => void;
   mascot?: {
     profile: MascotProfile;
     progress: MascotProgress;
@@ -48,7 +49,7 @@ const alertClasses = {
   red: "bg-rose-50 text-rose-700 ring-rose-100",
 };
 
-export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, onOpenSpaces, mascot }: Props) {
+export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, onOpenSpaces, onScanReceipt, mascot }: Props) {
   const { dashboard } = finance;
   const selected = monthOption(selectedYm);
   const totalExpenses = dashboard.fixedExpenses + dashboard.variableExpenses;
@@ -56,11 +57,12 @@ export function Dashboard({ name, selectedYm, onMonthChange, finance, spaces, on
 
   return (
     <div className="space-y-5 pb-2">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-slate-400">{greeting}</p>
           <h1 className="mt-1 text-2xl font-black text-slate-50">Tu hogar este mes</h1>
         </div>
+        <button type="button" onClick={onScanReceipt} className="btn-primary w-full shrink-0 px-4 text-sm sm:w-auto" aria-label="Escanear ticket de cualquier comercio">Escanear un ticket</button>
       </div>
 
       {mascot?.profile.onboardingComplete ? <MascotHomeCard

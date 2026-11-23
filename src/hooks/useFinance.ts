@@ -534,6 +534,7 @@ export function useFinance(selectedYm: string) {
 
   const saveTicket = useCallback(async (input: {
     storeName: string;
+    category: MovementCategory;
     date: string;
     totalCents: number;
     subtotalCents?: number;
@@ -557,8 +558,9 @@ export function useFinance(selectedYm: string) {
     const updates = new Map<string, MarketProduct>();
     const purchases: MarketPurchase[] = [];
     const lines = input.lines.map((line) => {
+      if (line.inventoryAction === "ignore") return { ...line, productId: undefined };
       const existing = (line.productId ? state.products.find((product) => product.id === line.productId) : undefined)
-        ?? byName.get(normalizeProductName(line.description));
+        ?? (line.inventoryAction === "update" ? byName.get(normalizeProductName(line.description)) : undefined);
       const current = existing ? (updates.get(existing.id) ?? existing) : undefined;
       const productId = current?.id ?? createId("prd");
       const next: MarketProduct = current
@@ -601,6 +603,7 @@ export function useFinance(selectedYm: string) {
     const ticket: ReceiptTicket = {
       id,
       storeName: input.storeName.trim() || "Comercio",
+      category: input.category,
       date: input.date,
       totalCents: input.totalCents,
       subtotalCents: input.subtotalCents,
@@ -615,7 +618,7 @@ export function useFinance(selectedYm: string) {
       id: movementId,
       date: input.date,
       type: "Gasto",
-      category: "Mercado",
+      category: input.category,
       description: `Compra en ${ticket.storeName}`,
       amountCents: input.totalCents,
       source: "ticket",

@@ -6,8 +6,8 @@ import { formatLongDate, todayISO } from "../lib/date";
 import { currency, fromCents, numberValue, parseAmount, toCents } from "../lib/money";
 import { getChecklistIds, saveChecklistIds } from "../lib/db";
 import type { useFinance } from "../hooks/useFinance";
-import type { MarketProduct, ProductCategory, ReceiptLine } from "../types/finance";
-import { productCategories } from "../types/finance";
+import type { MarketProduct, MovementCategory, ProductCategory, ReceiptLine } from "../types/finance";
+import { movementCategories, productCategories } from "../types/finance";
 import { parseReceiptText, receiptLineAmountMismatch, receiptSaveError, ticketLinesMismatch, type ParsedReceipt } from "../lib/receiptParser";
 import type { OcrProgress } from "../lib/receiptOcr";
 import { validateReceiptFile } from "../lib/receiptImage";
@@ -32,7 +32,7 @@ const tabs: Array<{ id: Tab; label: string }> = [
   { id: "tickets", label: "Tickets" },
 ];
 
-function ReceiptScanner({ finance }: { finance: Finance }) {
+export function ReceiptScanner({ finance, onClose, categoryOptions = movementCategories }: { finance: Finance; onClose?: () => void; categoryOptions?: MovementCategory[] }) {
   const [draft, setDraft] = useState<ParsedReceipt | null>(null);
   const [rawText, setRawText] = useState("");
   const [progress, setProgress] = useState<OcrProgress | null>(null);
@@ -42,6 +42,14 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
   const scanningRef = useRef(false);
   const [error, setError] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expenseCategory, setExpenseCategory] = useState<MovementCategory>("Mercado");
+
+  useEffect(() => {
+    if (!onClose) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
 
   async function scan(file?: File, input?: HTMLInputElement) {
     if (!file) return;
@@ -68,6 +76,7 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
       setDraft({
         ...parsed,
         lines: parsed.lines.map((line) => {
+          if (expenseCategory !== "Mercado") return { ...line, inventoryAction: "ignore" };
           const product = finance.products.find((item) => normalizeProductName(item.product) === normalizeProductName(line.description));
           return product
             ? { ...line, inventoryAction: "update", productId: product.id, category: product.category }
@@ -124,6 +133,7 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
     try {
       await finance.saveTicket({
         storeName: String(formData.get("receipt-store") ?? "").trim(),
+        category: String(formData.get("receipt-category") ?? "Mercado"),
         date: String(formData.get("receipt-date") ?? ""),
         totalCents: toCents(total),
         subtotalCents: subtotal === null ? undefined : toCents(subtotal),
@@ -142,8 +152,24 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
     }
   }
 
+  function changeExpenseCategory(category: MovementCategory) {
+    setExpenseCategory(category);
+    setDraft((current) => current ? {
+      ...current,
+      lines: current.lines.map((line) => {
+        if (category !== "Mercado") return { ...line, inventoryAction: "ignore", productId: undefined };
+        const existing = finance.products.find((product) => normalizeProductName(product.product) === normalizeProductName(line.description));
+        return existing
+          ? { ...line, inventoryAction: "update", productId: existing.id, category: existing.category }
+          : { ...line, inventoryAction: "create", productId: undefined };
+      }),
+    } : current);
+  }
+
   return (
-    <div className="space-y-3">
+    <div role={onClose ? "dialog" : undefined} aria-modal={onClose ? true : undefined} aria-label={onClose ? "Registrar ticket" : undefined} className={onClose ? "fixed inset-0 z-[100] overflow-y-auto bg-black/75 p-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur-sm" : "space-y-3"}>
+      <div className={onClose ? "mx-auto max-w-3xl space-y-3 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]" : "space-y-3"}>
+      {onClose ? <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#34434c] bg-[#182229] px-4 py-3"><div><p className="text-xs font-black uppercase tracking-wider text-[#b7f34a]">Finanzas hogar</p><h1 className="text-xl font-black text-slate-100">Registrar ticket</h1></div><button className="btn-secondary !min-h-10" type="button" onClick={onClose} aria-label="Cerrar lector de tickets">Cerrar</button></div> : null}
       <Card>
         <h2 className="text-lg font-black text-slate-950">Escanear un ticket</h2>
         <p className="mt-1 text-sm text-slate-500">El reconocimiento se procesa en este dispositivo. Revisa todos los datos antes de registrar la compra.</p>
@@ -176,13 +202,14 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
           <form className="mt-4 space-y-3" onSubmit={(event) => { event.preventDefault(); void save(new FormData(event.currentTarget)); }}>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="grid gap-1 text-sm font-bold text-slate-600">Comercio<input className="input" name="receipt-store" defaultValue={draft.storeName} required /></label>
+              <label className="grid gap-1 text-sm font-bold text-slate-600">Categoría del gasto<select className="input" name="receipt-category" value={expenseCategory} onChange={(event) => changeExpenseCategory(event.target.value)}>{[...new Set([...movementCategories, ...categoryOptions, expenseCategory])].map((category) => <option key={category}>{category}</option>)}</select></label>
               <label className="grid gap-1 text-sm font-bold text-slate-600">Fecha<input className="input" name="receipt-date" type="date" defaultValue={draft.date} required /></label>
               <label className="grid gap-1 text-sm font-bold text-slate-600">Total<input className="input" name="receipt-total" inputMode="decimal" defaultValue={draft.totalCents === undefined ? "" : fromCents(draft.totalCents)} required /></label>
               <label className="grid gap-1 text-sm font-bold text-slate-600">Subtotal (opcional)<input className="input" name="receipt-subtotal" inputMode="decimal" defaultValue={draft.subtotalCents === undefined ? "" : fromCents(draft.subtotalCents)} /></label>
               <label className="grid gap-1 text-sm font-bold text-slate-600">Impuestos (opcional)<input className="input" name="receipt-tax" inputMode="decimal" defaultValue={draft.taxCents === undefined ? "" : fromCents(draft.taxCents)} /></label>
               <label className="grid gap-1 text-sm font-bold text-slate-600">Descuentos (opcional)<input className="input" name="receipt-discount" inputMode="decimal" defaultValue={draft.discountCents === undefined ? "" : fromCents(draft.discountCents)} /></label>
             </div>
-            <div className="flex items-center justify-between"><h3 className="font-black text-slate-900">Productos detectados</h3><button className="btn-secondary" type="button" onClick={() => setDraft((current) => current ? { ...current, lines: [...current.lines, { id: `manual_${crypto.randomUUID()}`, description: "", quantity: 1, unitPriceCents: 0, totalCents: 0, inventoryAction: "create", category: "Despensa" }] } : current)}>+ Añadir línea</button></div>
+            <div className="flex items-center justify-between"><h3 className="font-black text-slate-900">Artículos del ticket</h3><button className="btn-secondary" type="button" onClick={() => setDraft((current) => current ? { ...current, lines: [...current.lines, { id: `manual_${crypto.randomUUID()}`, description: "", quantity: 1, unitPriceCents: 0, totalCents: 0, inventoryAction: expenseCategory === "Mercado" ? "create" : "ignore", category: "Despensa" }] } : current)}>+ Añadir línea</button></div>
             {draft.lines.length ? draft.lines.map((line, index) => (
               <div key={line.id} className="space-y-2 rounded-xl border border-slate-200 p-3">
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(10rem,1fr)_6rem_7rem_7rem_auto]">
@@ -196,8 +223,10 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
                   <select className="input" aria-label="Acción de inventario" value={line.inventoryAction === "update" ? `update:${line.productId}` : line.inventoryAction} onChange={(event) => {
                     const value = event.target.value;
                     if (value === "create") updateLine(index, { inventoryAction: value, productId: undefined });
+                    else if (value === "ignore") updateLine(index, { inventoryAction: value, productId: undefined });
                     else { const product = finance.products.find((item) => item.id === value.slice(7)); if (product) updateLine(index, { inventoryAction: "update", productId: product.id, category: product.category }); }
                   }}>
+                    <option value="ignore">Solo registrar en ticket</option>
                     <option value="create">Crear producto en inventario</option>
                     {finance.products.map((product) => <option key={product.id} value={`update:${product.id}`}>Sumar a {product.product}</option>)}
                   </select>
@@ -222,7 +251,7 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
           {finance.tickets.length ? finance.tickets.map((ticket) => (
             <div key={ticket.id} className="rounded-xl bg-slate-50 p-3">
               <button className="flex w-full items-center justify-between gap-3 text-left" type="button" onClick={() => setExpandedId((current) => current === ticket.id ? null : ticket.id)}>
-                <span><strong className="block text-slate-900">{ticket.storeName}</strong><span className="text-sm text-slate-500">{formatLongDate(ticket.date)} · {ticket.lines.length} productos</span></span>
+                <span><strong className="block text-slate-900">{ticket.storeName}</strong><span className="text-sm text-slate-500">{formatLongDate(ticket.date)} · {ticket.category ?? "Mercado"} · {ticket.lines.length} artículos</span></span>
                 <strong className="text-slate-950">{currency(fromCents(ticket.totalCents))}</strong>
               </button>
               {expandedId === ticket.id ? <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-sm">{ticket.lines.map((line) => <p key={line.id} className="flex justify-between gap-3 text-slate-700"><span>{line.description} · {line.quantity} · {line.inventoryAction === "ignore" ? "solo ticket" : line.inventoryAction === "create" ? "añadido al inventario" : "inventario actualizado"}</span><span>{currency(fromCents(line.totalCents))}</span></p>)}{ticket.subtotalCents !== undefined ? <p className="flex justify-between border-t border-slate-200 pt-2 text-slate-500"><span>Subtotal</span><span>{currency(fromCents(ticket.subtotalCents))}</span></p> : null}{ticket.taxCents !== undefined ? <p className="flex justify-between text-slate-500"><span>Impuestos</span><span>{currency(fromCents(ticket.taxCents))}</span></p> : null}{ticket.discountCents ? <p className="flex justify-between text-emerald-700"><span>Descuentos</span><span>−{currency(fromCents(ticket.discountCents))}</span></p> : null}</div> : null}
@@ -230,6 +259,7 @@ function ReceiptScanner({ finance }: { finance: Finance }) {
           )) : <EmptyState title="Sin tickets" body="Los tickets confirmados aparecerán aquí, con sus productos y total." />}
         </div>
       </Card>
+      </div>
     </div>
   );
 }
