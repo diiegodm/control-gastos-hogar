@@ -109,6 +109,7 @@ export type ReceiptLine = {
 export type ReceiptTicket = {
   id: string;
   storeName: string;
+  category?: MovementCategory;
   date: string;
   subtotalCents?: number;
   taxCents?: number;

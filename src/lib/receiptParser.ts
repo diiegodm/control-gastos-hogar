@@ -116,8 +116,9 @@ function cleanDescriptionNoise(value: string): string {
 
 function productHeaderIndex(lines: string[]): number {
   for (let index = 0; index < lines.length; index += 1) {
+    const ownLine = normalizeLine(lines[index]);
     const headerText = normalizeLine(lines.slice(index, index + 3).join(" "));
-    if (/\b(descripcion|producto|articulo)\b/.test(headerText) && /\b(precio|importe|p unit|unitario)\b/.test(headerText)) {
+    if (/\b(descripcion|producto|articulo)\b/.test(ownLine) && /\b(precio|importe|p unit|unitario|pvp)\b/.test(headerText)) {
       return index;
     }
   }
@@ -154,19 +155,44 @@ export function parseReceiptText(
   let discountCents: number | undefined;
   const detectedDate = lines.map(toISODate).find((value) => value !== undefined);
   const date = detectedDate ?? today;
-  const ignored = /\b(total|subtotal|base imponible|iva|impuesto|tarjeta|efectivo|contado|pago|pagado|cambio|vuelto|gracias|cajero|terminal|fecha|hora|ticket|pre[- ]?ticket|factura|entregado|devolucion|devolución|mesa|comensal(?:es)?|descripcion|descripción|precio|importe|cantidad)\b/i;
+  const ignored = /\b(total|subtotal|base imponible|iva|impuesto|tarjeta|efectivo|contado|pago|pagado|cambio|vuelto|gracias|cajero|terminal|fecha|hora|ticket|pre[- ]?ticket|factura|entregado|devolucion|devolución|mesa|comensal(?:es)?|descripcion|descripción|precio|importe|cantidad|cup[oó]n(?:es)?|clubd[ií]a|ahorro|descuento|promoci[oó]n|oferta|grupo d[ií]a|cif|direcci[oó]n)\b/i;
   const parsedItems: ReceiptLine[] = [];
+  const lineEntries = lines.map((value, index) => ({ value, index }));
+  let productEnd = totalLineIndex < 0 ? lines.length : totalLineIndex;
+  for (let index = headerIndex < 0 ? 0 : headerIndex + 1; index < productEnd - 1; index += 1) {
+    const current = lineEntries[index];
+    const next = lineEntries[index + 1];
+    const currentHasMoney = numericTokens(current.value).some((token) => token.cents !== undefined);
+    const nextHasMoney = numericTokens(next.value).some((token) => token.cents !== undefined);
+    const detailRemainder = next.value
+      .replace(/\b(?:uds?|unid(?:ad(?:es)?)?|kg|g|l|ml|a|b)\b/gi, "")
+      .replace(/[\d.,€%/×xX\-−\s]/g, "");
+    const nextHasOnlyDetails = detailRemainder.trim() === "" && /\d/.test(next.value);
+    if (!currentHasMoney && nextHasMoney && nextHasOnlyDetails && /[\p{L}]{2}/u.test(current.value) && !ignored.test(current.value)) {
+      current.value = `${current.value} ${next.value}`;
+      lineEntries.splice(index + 1, 1);
+      productEnd -= 1;
+    }
+  }
 
-  for (const [index, line] of lines.entries()) {
+  let inCouponSection = false;
+  for (const line of lines) {
+    if (/\b(cup[oó]n(?:es)?|clubd[ií]a)\b/i.test(line)) inCouponSection = true;
+    if (/\b(total a pagar|tarj(?:eta)?\.?|efectivo|forma de pago)\b/i.test(line)) inCouponSection = false;
+    const explicitDiscount = /\b(descuento|cup[oó]n|clubd[ií]a|promoci[oó]n|oferta)\b/i.test(line);
+    const couponAmount = inCouponSection && /\d\s*%/.test(line) && /[-−]\s*\d/.test(line);
+    if (!explicitDiscount && !couponAmount) continue;
+    const amounts = numericTokens(line).filter((token) => token.cents !== undefined);
+    const amount = amounts[amounts.length - 1]?.cents;
+    if (amount !== undefined && amount !== 0) discountCents = (discountCents ?? 0) + Math.abs(amount);
+  }
+
+  for (const { index, value: line } of lineEntries) {
     if (headerIndex >= 0 && index <= headerIndex) continue;
     if (totalLineIndex >= 0 && index >= totalLineIndex) continue;
     const tokens = numericTokens(line);
     const amounts = tokens.filter((token) => token.cents !== undefined);
-    if (/\b(descuento|promo(?:cion)?|oferta)\b/i.test(line)) {
-      const amount = amounts.length ? amounts[amounts.length - 1].cents : undefined;
-      if (amount !== undefined && amount !== 0) discountCents = (discountCents ?? 0) + Math.abs(amount);
-      continue;
-    }
+    if (/\b(descuento|cup[oó]n|clubd[ií]a|promo(?:ci[oó]n)?|oferta)\b/i.test(line)) continue;
     if (ignored.test(line) || toISODate(line) || !amounts.length || !/[a-záéíóúñ]/i.test(line)) continue;
 
     const totalToken = amounts[amounts.length - 1];
@@ -225,7 +251,11 @@ export function parseReceiptText(
   if (linesMismatch) {
     warnings.push("La suma de productos menos descuentos no coincide con el total. Comprueba los importes; no se ajustarán automáticamente.");
   }
-  const storeName = lines.find((line) => /[a-záéíóúñ]{3}/i.test(line) && !ignored.test(line) && !/\b(descuento|promo(?:cion)?|oferta)\b/i.test(line) && !toISODate(line)) ?? "Comercio";
+  const beforeProducts = lines.slice(0, headerIndex < 0 ? lines.length : headerIndex);
+  const storeNoise = /^(?:cl\.?|calle|av(?:enida)?\.?|paseo|fecha|hora|factura|n\.?\s*(?:fact|caja)|cif|tel[eé]fono)\b/i;
+  const storeName = beforeProducts.find((line) => /grupo\s*d[ií]a/i.test(line))
+    ?? beforeProducts.find((line) => /[a-záéíóúñ]{3}/i.test(line) && !ignored.test(line) && !storeNoise.test(line) && !toISODate(line))
+    ?? "Comercio";
   return { storeName: storeName.slice(0, 80), date, subtotalCents, taxCents, discountCents, totalCents, lines: parsedItems, warnings };
 }
 

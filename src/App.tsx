@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BottomNav, type Section } from "./components/BottomNav";
 import { Dashboard } from "./views/Dashboard";
+import { ReceiptScanner } from "./views/Market";
 import { Spaces } from "./views/Spaces";
 import { Analysis } from "./views/Analysis";
 import { Profile } from "./views/Profile";
@@ -29,6 +30,7 @@ export default function App() {
   const [section, setSection] = useState<Section>("dashboard");
   const [selectedYm, setSelectedYm] = useState(initialMonth);
   const [showQuickMovement, setShowQuickMovement] = useState(false);
+  const [showReceiptScanner, setShowReceiptScanner] = useState(false);
   const [importFeedback, setImportFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const finance = useFinance(selectedYm);
   const notes = useNotes();
@@ -202,7 +204,7 @@ export default function App() {
         {[spaces.storageError, notes.storageError].filter((message): message is string => Boolean(message)).map((message) => <p key={message} role="alert" className="mb-4 rounded-xl border border-amber-800 bg-amber-950/40 p-3 text-sm font-semibold text-amber-200">{message}</p>)}
         <div key={section} className="page-transition">
           {section === "dashboard" ? (
-            <Dashboard name={auth.name} selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => changeSection("spaces")} mascot={mascot.profile.onboardingComplete && !mascotHidden ? {
+            <Dashboard name={auth.name} selectedYm={selectedYm} onMonthChange={setSelectedYm} finance={finance} spaces={spaces} onOpenSpaces={() => changeSection("spaces")} onScanReceipt={() => setShowReceiptScanner(true)} mascot={mascot.profile.onboardingComplete && !mascotHidden ? {
               profile: mascot.profile,
               progress: mascot.progress,
               unreadCount: notifications.unreadCount,
@@ -221,6 +223,7 @@ export default function App() {
 
       <BottomNav active={section} onChange={changeSection} onAdd={() => setShowQuickMovement(true)} />
       {showQuickMovement ? <QuickMovement finance={finance} customCategories={[...spaces.budgetCategories, ...spaces.movementCategories]} budgetSpaces={spaces.budgets} onCreateCategory={spaces.addMovementCategory} onClose={() => setShowQuickMovement(false)} /> : null}
+      {showReceiptScanner ? <ReceiptScanner finance={finance} categoryOptions={[...new Set([...spaces.budgetCategories, ...spaces.movementCategories])]} onClose={() => setShowReceiptScanner(false)} /> : null}
       {mascotOpen ? <MascotPanel
         profile={mascot.profile}
         progress={mascot.progress}

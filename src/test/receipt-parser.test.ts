@@ -84,6 +84,40 @@ describe("lectura de datos de ticket", () => {
     expect(ticketLinesMismatch(receipt.lines, 1450)).toBe(false);
   });
 
+  it("lee filas de Día separadas en dos renglones e ignora cupones y pagos", () => {
+    const receipt = parseReceiptText([
+      "GRUPO DIA",
+      "CL GARCILASO DE LA VEGA",
+      "FACTURA SIMPLIFICADA 23-11-2026",
+      "DESCRIPCION ARTICULO",
+      "CANTIDAD PVP/UNIT IMPORTE €",
+      "CROISSANT MARGARINA",
+      "2 ud 0,49 €/ud 0,98 B",
+      "TOMATE CANARIO MALLA 1,99 A",
+      "PECHUGA POLLO ENTERA",
+      "0,770 kg 6,99 €/kg 5,38 B",
+      "HUEVOS L SUELO 3,05 A",
+      "TOTAL COMPRA GRUPO DIA 10,90",
+      "CUPONES ClubDia",
+      "20% Panaderia -0,20",
+      "15% Fruta y verdura -0,30",
+      "TOTAL A PAGAR EUROS 10,90",
+      "TARJ. TEF 10,90",
+    ].join("\n"), "2026-11-23");
+
+    expect(receipt.storeName).toBe("GRUPO DIA");
+    expect(receipt.date).toBe("2026-11-23");
+    expect(receipt.totalCents).toBe(1090);
+    expect(receipt.discountCents).toBe(50);
+    expect(receipt.lines.map(({ description, quantity, totalCents }) => ({ description, quantity, totalCents }))).toEqual([
+      { description: "CROISSANT MARGARINA", quantity: 2, totalCents: 98 },
+      { description: "TOMATE CANARIO MALLA", quantity: 1, totalCents: 199 },
+      { description: "PECHUGA POLLO ENTERA", quantity: 0.77, totalCents: 538 },
+      { description: "HUEVOS L SUELO", quantity: 1, totalCents: 305 },
+    ]);
+    expect(receipt.lines.reduce((sum, line) => sum + line.totalCents, 0) - receipt.discountCents!).toBe(1090);
+  });
+
   it("limpia el prefijo de cantidad con punto e ignora texto de pago y cabeceras", () => {
     const receipt = parseReceiptText([
       "RESTAURANTE",

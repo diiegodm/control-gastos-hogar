@@ -371,6 +371,7 @@ export function parseBackup(raw: unknown): BackupPayload {
   const tickets = backup.version >= 4 ? recordArray(backup.tickets, "tickets").map((item, index) => {
     const label = `tickets[${index}]`;
     requiredString(item, "storeName", label); isoDate(item, "date", label); requiredString(item, "movementId", label); requiredString(item, "createdAt", label);
+    optionalString(item, "category", label);
     finiteNumber(item, "totalCents", label, true);
     if (item.subtotalCents !== undefined) finiteNumber(item, "subtotalCents", label, true);
     if (item.taxCents !== undefined) finiteNumber(item, "taxCents", label, true);
